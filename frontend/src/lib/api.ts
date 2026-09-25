@@ -1,25 +1,8 @@
+import { Game, GameDetails, Achievement } from "@/types";
+
 export const BACKEND_URL = process.env.BACKEND_URL;
 
-export interface Game {
-  id: number;
-  name: string;
-  background_image: string;
-  released: string;
-  rating?: number;
-}
-
-export interface GameDetails extends Game {
-  description: string;
-  playtime: number;
-}
-
-export interface Achievement {
-  id: number;
-  name: string;
-  description: string;
-  image: string;
-  percent?: string;
-}
+export type { Game, GameDetails, Achievement };
 
 export async function getRecentGames(): Promise<Game[]> {
   try {

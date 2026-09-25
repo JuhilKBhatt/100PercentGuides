@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import styles from "./SearchBar.module.css";
 import { Search, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { Game, searchGames } from "@/lib/api";
+import { searchGames } from "@/lib/api";
+import { Game } from "@/types";
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
