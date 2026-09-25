@@ -1,4 +1,4 @@
-# 100PercentageGuides
+# 100PercentGuides
 
 ## Overview
 A high-performance, modern mobile-first video game achievement and 100% completion guide platform.
