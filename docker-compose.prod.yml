@@ -1,0 +1,25 @@
+include:
+  - docker-compose.yml
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./secrets/.env.prod
+
+  backend:
+    build:
+      context: ./backend
+      target: production
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./secrets/.env.prod
+    depends_on:
+      - redis
+      # DynamoDB local is typically replaced by the real AWS DynamoDB in prod,
+      # but we keep the depends_on redis here.
