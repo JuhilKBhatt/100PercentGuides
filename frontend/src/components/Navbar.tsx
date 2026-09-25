@@ -1,6 +1,6 @@
-import Link from 'next/link';
-import styles from './Navbar.module.css';
-import { Gamepad2, UserCircle } from 'lucide-react';
+import Link from "next/link";
+import styles from "./Navbar.module.css";
+import { Gamepad2 } from "lucide-react";
 
 export default function Navbar() {
   return (
@@ -10,14 +10,6 @@ export default function Navbar() {
           <Gamepad2 size={28} className={styles.logoIcon} />
           <span className="gradient-text">100PercentGuides</span>
         </Link>
-        <div className={styles.navLinks}>
-          <Link href="/guides" className={styles.navLink}>Guides</Link>
-          <Link href="/community" className={styles.navLink}>Community</Link>
-          <button className={styles.profileBtn}>
-            <UserCircle size={20} />
-            <span>Sign In</span>
-          </button>
-        </div>
       </div>
     </nav>
   );
