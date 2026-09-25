@@ -1,0 +1,133 @@
+.gamePage {
+  margin: 0 -24px;
+}
+
+.heroBanner {
+  position: relative;
+  width: 100%;
+  height: 400px;
+  background-size: cover;
+  background-position: center;
+  margin-bottom: 40px;
+}
+
+.heroOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(15,17,26,0.3) 0%, var(--background) 100%);
+}
+
+.heroContent {
+  position: absolute;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+}
+
+.gameTitle {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.gameMeta {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 32px;
+  margin-top: 40px;
+}
+
+.sectionTitle {
+  margin: 40px 0 20px;
+  font-size: 1.8rem;
+}
+
+.descriptionBox {
+  padding: 32px;
+  line-height: 1.7;
+}
+
+.descriptionBox h3 {
+  margin-bottom: 16px;
+  color: var(--primary);
+}
+
+.achievementsList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.achievementCard {
+  display: flex;
+  padding: 16px;
+  gap: 20px;
+  align-items: center;
+  transition: transform 0.2s;
+}
+
+.achievementCard:hover {
+  transform: translateX(5px);
+  border-color: var(--primary-glow);
+}
+
+.achImage {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.achInfo h4 {
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+}
+
+.achInfo p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.sidebarWidget {
+  padding: 24px;
+}
+
+.sidebarWidget h3 {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.statRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.statRow:last-child {
+  border-bottom: none;
+}
+
+.statRow span:first-child {
+  color: var(--text-muted);
+}
+
+.statRow span:last-child {
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .contentGrid {
+    grid-template-columns: 1fr;
+  }
+}
