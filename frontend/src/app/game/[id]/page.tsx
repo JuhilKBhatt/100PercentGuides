@@ -1,21 +1,29 @@
-import React from 'react';
-import AdBanner from '@/components/AdBanner';
-import styles from './game.module.css';
+import React from "react";
+import AdBanner from "@/components/AdBanner";
+import styles from "./game.module.css";
+
+const BACKEND_URL = process.env.BACKEND_URL || "http://backend:8080";
 
 async function getGameDetails(id: string) {
-  const RAWG_API_KEY = process.env.RAWG_API_KEY;
-  if (!RAWG_API_KEY) return null;
-  const res = await fetch(`https://api.rawg.io/api/games/${id}?key=${RAWG_API_KEY}`, { next: { revalidate: 3600 } });
-  if (!res.ok) return null;
-  return res.json();
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/games/${id}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (e) {
+    console.error("Failed to fetch game details from backend:", e);
+    return null;
+  }
 }
 
 async function getGameAchievements(id: string) {
-  const RAWG_API_KEY = process.env.RAWG_API_KEY;
-  if (!RAWG_API_KEY) return null;
-  const res = await fetch(`https://api.rawg.io/api/games/${id}/achievements?key=${RAWG_API_KEY}`, { next: { revalidate: 3600 } });
-  if (!res.ok) return null;
-  return res.json();
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/games/${id}/achievements`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (e) {
+    console.error("Failed to fetch game achievements from backend:", e);
+    return null;
+  }
 }
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
@@ -25,7 +33,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
   const achievements = achievementsData?.results || [];
 
   if (!game) {
-    return <div className="container" style={{ padding: '100px 0', textAlign: 'center' }}>Game not found.</div>;
+    return <div className="container" style={{ padding: "100px 0", textAlign: "center" }}>Game not found.</div>;
   }
 
   return (
@@ -61,7 +69,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
                   </div>
                 ))
               ) : (
-                <p style={{ color: 'var(--text-muted)' }}>No achievements found for this game.</p>
+                <p style={{ color: "var(--text-muted)" }}>No achievements found for this game.</p>
               )}
             </div>
           </div>
@@ -79,7 +87,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
               </div>
             </div>
             
-            <div style={{ marginTop: '24px' }}>
+            <div style={{ marginTop: "24px" }}>
                <AdBanner position="inline" />
             </div>
           </div>
