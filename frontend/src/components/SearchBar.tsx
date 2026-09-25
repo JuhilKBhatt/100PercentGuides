@@ -1,29 +1,21 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import styles from "./SearchBar.module.css";
 import { Search, Loader2 } from "lucide-react";
 import Link from "next/link";
-
-interface GameResult {
-  id: number;
-  name: string;
-  background_image: string;
-  released: string;
-}
+import { Game, searchGames } from "@/lib/api";
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GameResult[]>([]);
+  const [results, setResults] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   
   const searchRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  // Client-side cache to prevent duplicate requests when backspacing/retyping
-  const clientCacheRef = useRef<Map<string, GameResult[]>>(new Map());
+  const clientCacheRef = useRef<Map<string, Game[]>>(new Map());
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -34,18 +26,15 @@ export default function SearchBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Keyboard accessibility (e.g. Escape to dismiss)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       setIsOpen(false);
     }
   };
 
-  // Debounced search with AbortController protection
   useEffect(() => {
     const trimmed = query.trim();
 
-    // If query is too short, abort previous requests and clear
     if (trimmed.length < 2) {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -55,7 +44,6 @@ export default function SearchBar() {
       return;
     }
 
-    // Check client-side memory cache first for instant response
     const cached = clientCacheRef.current.get(trimmed.toLowerCase());
     if (cached) {
       if (abortControllerRef.current) {
@@ -66,7 +54,6 @@ export default function SearchBar() {
       return;
     }
 
-    // Cancel any previous in-flight request to avoid race conditions
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -75,21 +62,9 @@ export default function SearchBar() {
 
     setIsLoading(true);
 
-    // 350ms debounce window
     const debounceTimer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/games/search?q=${encodeURIComponent(trimmed)}`, {
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          throw new Error("Search request failed");
-        }
-
-        const data = await res.json();
-        const games: GameResult[] = data.results ? data.results.slice(0, 6) : [];
-
-        // Save to client cache
+        const games = await searchGames(trimmed, controller.signal);
         clientCacheRef.current.set(trimmed.toLowerCase(), games);
         setResults(games);
       } catch (err: any) {

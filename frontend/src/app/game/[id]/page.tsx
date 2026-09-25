@@ -1,36 +1,12 @@
 import React from "react";
 import AdBanner from "@/components/AdBanner";
 import styles from "./game.module.css";
-
-const BACKEND_URL = process.env.BACKEND_URL || "http://backend:8080";
-
-async function getGameDetails(id: string) {
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/games/${id}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return res.json();
-  } catch (e) {
-    console.error("Failed to fetch game details from backend:", e);
-    return null;
-  }
-}
-
-async function getGameAchievements(id: string) {
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/games/${id}/achievements`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return res.json();
-  } catch (e) {
-    console.error("Failed to fetch game achievements from backend:", e);
-    return null;
-  }
-}
+import { getGameDetails, getGameAchievements } from "@/lib/api";
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const game = await getGameDetails(id);
-  const achievementsData = await getGameAchievements(id);
-  const achievements = achievementsData?.results || [];
+  const achievements = await getGameAchievements(id);
 
   if (!game) {
     return <div className="container" style={{ padding: "100px 0", textAlign: "center" }}>Game not found.</div>;
@@ -59,7 +35,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
             <h2 className={styles.sectionTitle}>Achievements ({achievements.length})</h2>
             <div className={styles.achievementsList}>
               {achievements.length > 0 ? (
-                achievements.map((ach: any) => (
+                achievements.map((ach) => (
                   <div key={ach.id} className={`glass-panel ${styles.achievementCard}`}>
                     <img src={ach.image} alt={ach.name} className={styles.achImage} />
                     <div className={styles.achInfo}>

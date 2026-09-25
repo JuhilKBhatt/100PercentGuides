@@ -3,20 +3,7 @@ import SearchBar from "@/components/SearchBar";
 import AdCarousel from "@/components/AdCarousel";
 import styles from "./page.module.css";
 import Link from "next/link";
-
-const BACKEND_URL = process.env.BACKEND_URL || "http://backend:8080";
-
-async function getRecentGames() {
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/games/recent`, { cache: "no-store" });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.results || [];
-  } catch (e) {
-    console.error("Failed to fetch recent games from backend:", e);
-    return [];
-  }
-}
+import { getRecentGames } from "@/lib/api";
 
 export default async function Home() {
   const recentGames = await getRecentGames();
@@ -39,7 +26,7 @@ export default async function Home() {
         
         <h2 className={styles.sectionTitle}>Recently Released</h2>
         <div className={styles.gamesGrid}>
-          {recentGames.map((game: any) => (
+          {recentGames.map((game) => (
             <Link href={`/game/${game.id}`} key={game.id} className={`glass-panel ${styles.gameCard}`}>
               <div 
                 className={styles.gameCardImage} 
