@@ -5,6 +5,18 @@ export interface Developer {
   image_background?: string;
 }
 
+export interface Publisher {
+  id: number;
+  name: string;
+  slug?: string;
+}
+
+export interface Genre {
+  id: number;
+  name: string;
+  slug?: string;
+}
+
 export interface Game {
   id: number;
   name: string;
@@ -17,7 +29,8 @@ export interface GameDetails extends Game {
   description: string;
   playtime: number;
   developers?: Developer[];
-  publishers?: Developer[];
+  publishers?: Publisher[];
+  genres?: Genre[];
 }
 
 export interface Achievement {

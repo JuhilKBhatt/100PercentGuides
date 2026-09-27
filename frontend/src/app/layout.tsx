@@ -17,8 +17,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={cn("dark font-sans", geist.variable)}>
-      <body className="bg-background text-foreground antialiased selection:bg-orange-500 selection:text-black">
+    <html lang="en" className={cn("dark bg-black font-sans", geist.variable)}>
+      <body className="bg-black text-foreground antialiased selection:bg-orange-500 selection:text-black">
         <Navbar />
         <main className="container" style={{ paddingBottom: "100px" }}>
           {children}

@@ -8,7 +8,7 @@ export default async function Home() {
   const recentGames = await getRecentGames();
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen py-16 px-4">
+    <div className="flex flex-col items-center justify-center min-h-screen py-16 px-4 bg-black">
       <div className="text-center space-y-6 max-w-4xl mx-auto w-full">
         <h1 className="text-5xl md:text-7xl font-bold font-outfit text-white tracking-tight">
           Unlock Every <span className="bg-clip-text text-transparent bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400 drop-shadow-md">Achievement</span>
@@ -35,13 +35,13 @@ export default async function Home() {
               <Link 
                 href={`/game/${game.id}`} 
                 key={game.id} 
-                className="group flex flex-col bg-[#0e0f14]/80 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl hover:border-orange-500/40 hover:shadow-orange-500/10 transition-all duration-300 hover:-translate-y-1"
+                className="group flex flex-col bg-[#0a0a0d]/90 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl hover:border-orange-500/40 hover:shadow-orange-500/10 transition-all duration-300 hover:-translate-y-1"
               >
                 <div 
                   className="w-full h-48 bg-cover bg-center transition-transform duration-500 group-hover:scale-105" 
                   style={{ backgroundImage: `url(${game.background_image})` }} 
                 />
-                <div className="p-5 flex flex-col justify-between flex-1 relative z-10 bg-black/50 backdrop-blur-md">
+                <div className="p-5 flex flex-col justify-between flex-1 relative z-10 bg-black/60 backdrop-blur-md">
                   <h3 className="font-outfit font-semibold text-lg text-white group-hover:text-amber-400 transition-colors line-clamp-1">{game.name}</h3>
                   <p className="text-sm text-muted-foreground mt-2">Released: {game.released}</p>
                 </div>
