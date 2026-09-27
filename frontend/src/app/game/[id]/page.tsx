@@ -1,6 +1,6 @@
 import React from "react";
+import AdCarousel from "@/components/AdCarousel";
 import AdBanner from "@/components/AdBanner";
-import styles from "./game.module.css";
 import { getGameDetails, getGameAchievements } from "@/lib/api";
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
@@ -9,61 +9,71 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
   const achievements = await getGameAchievements(id);
 
   if (!game) {
-    return <div className="container" style={{ padding: "100px 0", textAlign: "center" }}>Game not found.</div>;
+    return <div className="container mx-auto py-24 text-center">Game not found.</div>;
   }
 
   return (
-    <div className={styles.gamePage}>
-      <div className={styles.heroBanner} style={{ backgroundImage: `url(${game.background_image})` }}>
-        <div className={styles.heroOverlay}></div>
-        <div className={`container ${styles.heroContent}`}>
-          <h1 className={styles.gameTitle}>{game.name}</h1>
-          <p className={styles.gameMeta}>Released: {game.released}</p>
+    <div className="pb-16">
+      <div 
+        className="relative w-full h-[40vh] min-h-[300px] bg-cover bg-center" 
+        style={{ backgroundImage: `url(${game.background_image})` }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-t from-background to-background/20 via-background/60"></div>
+        <div className="container relative h-full flex flex-col justify-end pb-8">
+          <h1 className="text-4xl md:text-5xl font-bold font-outfit text-white drop-shadow-lg">{game.name}</h1>
+          <p className="text-lg text-amber-300/90 mt-2 drop-shadow-md font-medium">{game.released}</p>
         </div>
       </div>
 
-      <div className="container">
-        <AdBanner position="inline" />
+      <div className="container mt-8">
+        <AdCarousel />
         
-        <div className={styles.contentGrid}>
-          <div className={styles.mainContent}>
-            <div className={`glass-panel ${styles.descriptionBox}`}>
-              <h3>About {game.name}</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+          <div className="lg:col-span-2 space-y-8">
+            <div className="p-6 bg-[#0e0f14]/85 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl prose prose-invert max-w-none">
+              <h3 className="text-2xl font-bold font-outfit mb-4 text-orange-400">About {game.name}</h3>
               <div dangerouslySetInnerHTML={{ __html: game.description }}></div>
             </div>
             
-            <h2 className={styles.sectionTitle}>Achievements ({achievements.length})</h2>
-            <div className={styles.achievementsList}>
+            <h2 className="text-3xl font-bold font-outfit mb-6 text-white flex items-center gap-3">
+              <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block"></span>
+              Achievements ({achievements.length})
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {achievements.length > 0 ? (
                 achievements.map((ach) => (
-                  <div key={ach.id} className={`glass-panel ${styles.achievementCard}`}>
-                    <img src={ach.image} alt={ach.name} className={styles.achImage} />
-                    <div className={styles.achInfo}>
-                      <h4>{ach.name}</h4>
-                      <p>{ach.description}</p>
+                  <div key={ach.id} className="flex gap-4 p-4 bg-[#0e0f14]/85 backdrop-blur-xl border border-white/10 rounded-xl hover:border-orange-500/30 hover:bg-orange-500/5 transition-all group">
+                    {ach.image ? (
+                      <img src={ach.image} alt={ach.name} className="w-16 h-16 rounded-lg object-cover shadow-md group-hover:scale-105 transition-transform" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg bg-white/5 border border-white/10"></div>
+                    )}
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-white group-hover:text-amber-400 transition-colors">{ach.name}</h4>
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{ach.description}</p>
                     </div>
                   </div>
                 ))
               ) : (
-                <p style={{ color: "var(--text-muted)" }}>No achievements found for this game.</p>
+                <p className="text-muted-foreground col-span-full">No achievements found for this game.</p>
               )}
             </div>
           </div>
           
-          <div className={styles.sidebar}>
-            <div className={`glass-panel ${styles.sidebarWidget}`}>
-              <h3>Game Stats</h3>
-              <div className={styles.statRow}>
-                <span>Rating</span>
-                <span>{game.rating} / 5</span>
+          <div className="space-y-6">
+            <div className="p-6 bg-[#0e0f14]/85 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
+              <h3 className="text-xl font-bold font-outfit mb-4 text-orange-400">Game Stats</h3>
+              <div className="flex justify-between py-3 border-b border-white/10">
+                <span className="text-muted-foreground">Rating</span>
+                <span className="font-bold text-amber-400">{game.rating} / 5</span>
               </div>
-              <div className={styles.statRow}>
-                <span>Playtime</span>
-                <span>~{game.playtime} hours</span>
+              <div className="flex justify-between py-3">
+                <span className="text-muted-foreground">Playtime</span>
+                <span className="font-bold text-amber-400">~{game.playtime} hours</span>
               </div>
             </div>
             
-            <div style={{ marginTop: "24px" }}>
+            <div className="sticky top-24">
                <AdBanner position="inline" />
             </div>
           </div>

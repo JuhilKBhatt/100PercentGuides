@@ -20,6 +20,10 @@ docker-compose.override.yml
 *.swo
 *.pem
 
+# agents
+.agents/*
+skills-lock.json
+
 # ==========================================
 # Frontend (Next.js)
 # ==========================================

@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import styles from "./SearchBar.module.css";
 import { Search, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { searchGames } from "@/lib/api";
-import { Game } from "@/types";
+import { Game } from "@/types/game";
+import { Input } from "@/components/ui/input";
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
@@ -87,10 +87,10 @@ export default function SearchBar() {
   }, [query]);
 
   return (
-    <div className={styles.searchWrapper} ref={searchRef}>
-      <div className={`${styles.searchBox} ${isOpen && query.length > 0 ? styles.active : ""}`}>
-        <Search className={styles.searchIcon} size={20} />
-        <input 
+    <div className="relative w-full max-w-2xl mx-auto z-50" ref={searchRef}>
+      <div className={`relative flex items-center transition-all duration-300 ${isOpen && query.length > 0 ? "scale-[1.02]" : ""}`}>
+        <Search className="absolute left-4 text-orange-400/80" size={20} />
+        <Input 
           type="text" 
           placeholder="Search for a game to 100%..."
           value={query}
@@ -100,38 +100,38 @@ export default function SearchBar() {
           }}
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
-          className={styles.searchInput}
+          className="w-full pl-12 pr-12 py-6 text-lg bg-[#0e0f14]/80 backdrop-blur-md border-white/10 rounded-2xl shadow-2xl focus-visible:ring-orange-500/50 focus-visible:border-orange-500/50 placeholder:text-muted-foreground/60 transition-all text-white"
           autoComplete="off"
           spellCheck="false"
         />
-        {isLoading && <Loader2 className={styles.spinner} size={20} />}
+        {isLoading && <Loader2 className="absolute right-4 animate-spin text-orange-500" size={20} />}
       </div>
 
       {isOpen && query.trim().length >= 2 && (
-        <div className={`glass-panel ${styles.dropdown}`}>
+        <div className="absolute top-full left-0 w-full mt-4 bg-[#0a0a0e]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[60vh] overflow-y-auto custom-scrollbar">
           {results.length > 0 ? (
-            <div className={styles.resultsList}>
+            <div className="flex flex-col p-2 space-y-1">
               {results.map((game) => (
                 <Link 
                   href={`/game/${game.id}`} 
                   key={game.id} 
-                  className={styles.resultItem}
+                  className="flex items-center gap-4 p-3 rounded-xl hover:bg-orange-500/10 hover:border hover:border-orange-500/20 transition-all group"
                   onClick={() => setIsOpen(false)}
                 >
                   {game.background_image ? (
-                    <img src={game.background_image} alt={game.name} className={styles.resultImg} />
+                    <img src={game.background_image} alt={game.name} className="w-16 h-16 object-cover rounded-lg shadow-md group-hover:scale-105 transition-transform" />
                   ) : (
-                    <div className={styles.placeholderImg}></div>
+                    <div className="w-16 h-16 bg-white/5 rounded-lg border border-white/10"></div>
                   )}
-                  <div className={styles.resultInfo}>
-                    <h4>{game.name}</h4>
-                    <span>{game.released ? new Date(game.released).getFullYear() : "Unknown year"}</span>
+                  <div className="flex flex-col">
+                    <h4 className="text-lg font-semibold text-white group-hover:text-amber-400 transition-colors">{game.name}</h4>
+                    <span className="text-sm text-muted-foreground">{game.released ? new Date(game.released).getFullYear() : "Unknown year"}</span>
                   </div>
                 </Link>
               ))}
             </div>
           ) : (
-            <div className={styles.noResults}>
+            <div className="p-8 text-center text-muted-foreground">
               {isLoading ? "Searching..." : "No games found."}
             </div>
           )}

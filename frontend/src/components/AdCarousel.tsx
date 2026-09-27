@@ -1,38 +1,49 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import AdBanner from "./AdBanner";
-import styles from "./AdCarousel.module.css";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
+import Autoplay from "embla-carousel-autoplay";
 
 export default function AdCarousel() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % 3);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
+  const plugin = React.useRef(
+    Autoplay({ delay: 5000, stopOnInteraction: true })
+  );
 
   return (
-    <div className={styles.carouselContainer}>
-      <div 
-        className={styles.carouselTrack}
-        style={{ transform: `translateX(-${currentIndex * 100}%)` }}
+    <div className="w-full max-w-4xl mx-auto py-6">
+      <Carousel
+        plugins={[plugin.current]}
+        className="w-full"
+        onMouseEnter={plugin.current.stop}
+        onMouseLeave={plugin.current.reset}
       >
-        <div className={styles.slide}><AdBanner position="inline" /></div>
-        <div className={styles.slide}><AdBanner position="inline" /></div>
-        <div className={styles.slide}><AdBanner position="inline" /></div>
-      </div>
-      <div className={styles.dots}>
-        {[0, 1, 2].map(idx => (
-          <span 
-            key={idx} 
-            className={`${styles.dot} ${currentIndex === idx ? styles.active : ""}`}
-            onClick={() => setCurrentIndex(idx)}
-          />
-        ))}
-      </div>
+        <CarouselContent>
+          <CarouselItem>
+            <div className="p-1">
+              <AdBanner position="inline" />
+            </div>
+          </CarouselItem>
+          <CarouselItem>
+            <div className="p-1">
+              <AdBanner position="inline" />
+            </div>
+          </CarouselItem>
+          <CarouselItem>
+            <div className="p-1">
+              <AdBanner position="inline" />
+            </div>
+          </CarouselItem>
+        </CarouselContent>
+        <CarouselPrevious className="hidden md:flex border-white/10 bg-black/40 backdrop-blur-md hover:bg-primary hover:text-white" />
+        <CarouselNext className="hidden md:flex border-white/10 bg-black/40 backdrop-blur-md hover:bg-primary hover:text-white" />
+      </Carousel>
     </div>
   );
 }
