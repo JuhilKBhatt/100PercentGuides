@@ -12,6 +12,8 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
     return <div className="container mx-auto py-24 text-center">Game not found.</div>;
   }
 
+  const developerNames = game.developers?.map((d) => d.name).join(", ");
+
   return (
     <div className="pb-16">
       <div 
@@ -21,7 +23,15 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         <div className="absolute inset-0 bg-gradient-to-t from-background to-background/20 via-background/60"></div>
         <div className="container relative h-full flex flex-col justify-end pb-8">
           <h1 className="text-4xl md:text-5xl font-bold font-outfit text-white drop-shadow-lg">{game.name}</h1>
-          <p className="text-lg text-amber-300/90 mt-2 drop-shadow-md font-medium">{game.released}</p>
+          {developerNames && (
+            <p className="text-base md:text-lg text-orange-400 font-medium mt-1.5 drop-shadow-md flex items-center gap-2 flex-wrap">
+              <span className="text-xs uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300">
+                Developer
+              </span>
+              <span>{developerNames}</span>
+            </p>
+          )}
+          <p className="text-sm text-amber-300/90 mt-1 drop-shadow-md font-medium">Released: {game.released}</p>
         </div>
       </div>
 
@@ -63,6 +73,12 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
           <div className="space-y-6">
             <div className="p-6 bg-[#0e0f14]/85 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl">
               <h3 className="text-xl font-bold font-outfit mb-4 text-orange-400">Game Stats</h3>
+              {developerNames && (
+                <div className="flex justify-between py-3 border-b border-white/10">
+                  <span className="text-muted-foreground">Studio</span>
+                  <span className="font-medium text-white text-right max-w-[60%]">{developerNames}</span>
+                </div>
+              )}
               <div className="flex justify-between py-3 border-b border-white/10">
                 <span className="text-muted-foreground">Rating</span>
                 <span className="font-bold text-amber-400">{game.rating} / 5</span>
