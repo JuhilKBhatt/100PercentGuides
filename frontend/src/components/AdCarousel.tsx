@@ -17,7 +17,7 @@ export default function AdCarousel() {
   );
 
   return (
-    <div className="w-full max-w-4xl mx-auto py-6">
+    <div className="w-full max-w-4xl mx-auto py-4">
       <Carousel
         plugins={[plugin.current]}
         className="w-full"
@@ -41,8 +41,8 @@ export default function AdCarousel() {
             </div>
           </CarouselItem>
         </CarouselContent>
-        <CarouselPrevious className="hidden md:flex border-white/10 bg-black/40 backdrop-blur-md hover:bg-primary hover:text-white" />
-        <CarouselNext className="hidden md:flex border-white/10 bg-black/40 backdrop-blur-md hover:bg-primary hover:text-white" />
+        <CarouselPrevious className="hidden md:flex border-orange-500/30 bg-black text-orange-400 hover:bg-orange-500 hover:text-black transition-colors" />
+        <CarouselNext className="hidden md:flex border-orange-500/30 bg-black text-orange-400 hover:bg-orange-500 hover:text-black transition-colors" />
       </Carousel>
     </div>
   );

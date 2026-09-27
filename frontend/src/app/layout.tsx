@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:["latin"], variable:"--font-sans"});
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "100PercentGuides | Ultimate Game Completion",
@@ -18,9 +18,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={cn("dark bg-black font-sans", geist.variable)}>
-      <body className="bg-black text-foreground antialiased selection:bg-orange-500 selection:text-black">
+      <body className="min-h-screen bg-black text-foreground antialiased selection:bg-orange-500 selection:text-black">
         <Navbar />
-        <main className="container" style={{ paddingBottom: "100px" }}>
+        <main className="w-full min-h-screen bg-black">
           {children}
         </main>
       </body>
