@@ -101,6 +101,47 @@ public class GameCacheService {
         return freshData;
     }
 
+    public void put(String cacheKey, String data, Duration ttl) {
+        if (data == null || data.isBlank()) return;
+        try {
+            long nowEpochSec = System.currentTimeMillis() / 1000;
+            long ttlSec = (ttl != null) ? ttl.toSeconds() : 86400L;
+            Map<String, AttributeValue> item = new HashMap<>();
+            item.put("cacheKey", AttributeValue.builder().s(cacheKey).build());
+            item.put("payload", AttributeValue.builder().s(data).build());
+            item.put("updatedAt", AttributeValue.builder().n(String.valueOf(System.currentTimeMillis())).build());
+            item.put("ttl", AttributeValue.builder().n(String.valueOf(nowEpochSec + ttlSec)).build());
+
+            dynamoDbClient.putItem(PutItemRequest.builder()
+                    .tableName(DynamoDbConfig.TABLE_NAME)
+                    .item(item)
+                    .build());
+            log.info("[DynamoDB PUT] key={}, ttlSec={}", cacheKey, ttlSec);
+        } catch (Exception ex) {
+            log.error("Failed to put in DynamoDB for key={}: {}", cacheKey, ex.getMessage());
+        }
+
+        putRedis(cacheKey, data, ttl);
+    }
+
+    public void evict(String cacheKey) {
+        try {
+            redisTemplate.delete(cacheKey);
+            log.info("[Redis EVICTED] key={}", cacheKey);
+        } catch (Exception ex) {
+            log.warn("Redis evict failed for key={}: {}", cacheKey, ex.getMessage());
+        }
+        try {
+            dynamoDbClient.deleteItem(software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest.builder()
+                    .tableName(DynamoDbConfig.TABLE_NAME)
+                    .key(Map.of("cacheKey", AttributeValue.builder().s(cacheKey).build()))
+                    .build());
+            log.info("[DynamoDB EVICTED] key={}", cacheKey);
+        } catch (Exception ex) {
+            log.warn("DynamoDB evict failed for key={}: {}", cacheKey, ex.getMessage());
+        }
+    }
+
     private void putRedis(String key, String value, Duration ttl) {
         try {
             if (ttl != null) {

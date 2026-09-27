@@ -23,6 +23,8 @@ export interface Game {
   background_image: string;
   released: string;
   rating?: number;
+  steamAppId?: string;
+  steamUrl?: string;
 }
 
 export interface GameDetails extends Game {
@@ -31,6 +33,8 @@ export interface GameDetails extends Game {
   developers?: Developer[];
   publishers?: Publisher[];
   genres?: Genre[];
+  steamAppId?: string;
+  steamUrl?: string;
 }
 
 export interface Achievement {
@@ -39,7 +43,9 @@ export interface Achievement {
   description: string;
   image: string;
   percent?: string;
+  hidden?: boolean;
 }
+
 export type AchievementTier = "gold" | "silver" | "bronze";
 
 export interface AchievementTierInfo {

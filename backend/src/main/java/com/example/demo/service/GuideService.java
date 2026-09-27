@@ -1,0 +1,154 @@
+package com.example.demo.service;
+
+import com.example.demo.config.DynamoDbConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.*;
+
+import java.time.Duration;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Service
+public class GuideService {
+
+    private static final Logger log = LoggerFactory.getLogger(GuideService.class);
+    private static final Duration TTL_24_HOURS = Duration.ofHours(24);
+
+    private final DynamoDbClient dynamoDbClient;
+    private final StringRedisTemplate redisTemplate;
+
+    public GuideService(DynamoDbClient dynamoDbClient, StringRedisTemplate redisTemplate) {
+        this.dynamoDbClient = dynamoDbClient;
+        this.redisTemplate = redisTemplate;
+    }
+
+    public boolean saveGuide(String gameId, String guideSlug, String title, int totalCount, String payloadJson) {
+        log.info("Saving guide to DynamoDB: gameId={}, guideSlug={}, title={}", gameId, guideSlug, title);
+        try {
+            long now = System.currentTimeMillis();
+            Map<String, AttributeValue> item = new HashMap<>();
+            item.put("gameId", AttributeValue.builder().s(gameId).build());
+            item.put("guideSlug", AttributeValue.builder().s(guideSlug).build());
+            item.put("title", AttributeValue.builder().s(title).build());
+            item.put("totalCount", AttributeValue.builder().n(String.valueOf(totalCount)).build());
+            item.put("payload", AttributeValue.builder().s(payloadJson).build());
+            item.put("updatedAt", AttributeValue.builder().n(String.valueOf(now)).build());
+
+            dynamoDbClient.putItem(PutItemRequest.builder()
+                    .tableName(DynamoDbConfig.GUIDES_TABLE)
+                    .item(item)
+                    .build());
+
+            // Cache in Redis
+            String cacheKey = "guide:" + gameId + ":" + guideSlug;
+            redisTemplate.opsForValue().set(cacheKey, payloadJson, TTL_24_HOURS);
+            redisTemplate.delete("guides:list:" + gameId);
+            return true;
+        } catch (Exception ex) {
+            log.error("Failed to save guide to DynamoDB: {}", ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    public String getGuide(String gameId, String guideSlug) {
+        String cacheKey = "guide:" + gameId + ":" + guideSlug;
+
+        // 1. Try Redis
+        try {
+            String cached = redisTemplate.opsForValue().get(cacheKey);
+            if (cached != null && !cached.isBlank()) {
+                log.info("[Redis HIT] Guide key={}", cacheKey);
+                return cached;
+            }
+        } catch (Exception e) {
+            log.warn("Redis guide read failed: {}", e.getMessage());
+        }
+
+        // 2. Try DynamoDB
+        String fromDb = getGuideFromDb(gameId, guideSlug);
+        if (fromDb != null) {
+            log.info("[DynamoDB HIT] Guide gameId={}, guideSlug={}", gameId, guideSlug);
+            try {
+                redisTemplate.opsForValue().set(cacheKey, fromDb, TTL_24_HOURS);
+            } catch (Exception ignored) {}
+            return fromDb;
+        }
+
+        log.warn("Guide not found in database for gameId={}, guideSlug={}", gameId, guideSlug);
+        return null;
+    }
+
+    private String getGuideFromDb(String gameId, String guideSlug) {
+        try {
+            Map<String, AttributeValue> key = new HashMap<>();
+            key.put("gameId", AttributeValue.builder().s(gameId).build());
+            key.put("guideSlug", AttributeValue.builder().s(guideSlug).build());
+
+            GetItemResponse response = dynamoDbClient.getItem(GetItemRequest.builder()
+                    .tableName(DynamoDbConfig.GUIDES_TABLE)
+                    .key(key)
+                    .build());
+
+            if (response.hasItem() && response.item().containsKey("payload")) {
+                return response.item().get("payload").s();
+            }
+        } catch (Exception ex) {
+            log.warn("DynamoDB getGuide failed for {}_{}: {}", gameId, guideSlug, ex.getMessage());
+        }
+        return null;
+    }
+
+    public List<Map<String, Object>> listGuidesForGame(String gameId) {
+        log.info("Listing guides from DynamoDB for gameId={}", gameId);
+        List<Map<String, Object>> list = new ArrayList<>();
+        try {
+            Map<String, AttributeValue> expressionValues = new HashMap<>();
+            expressionValues.put(":gid", AttributeValue.builder().s(gameId).build());
+
+            QueryResponse response = dynamoDbClient.query(QueryRequest.builder()
+                    .tableName(DynamoDbConfig.GUIDES_TABLE)
+                    .keyConditionExpression("gameId = :gid")
+                    .expressionAttributeValues(expressionValues)
+                    .build());
+
+            for (Map<String, AttributeValue> item : response.items()) {
+                Map<String, Object> meta = new HashMap<>();
+                meta.put("gameId", item.get("gameId").s());
+                meta.put("guideSlug", item.get("guideSlug").s());
+                meta.put("title", item.containsKey("title") ? item.get("title").s() : item.get("guideSlug").s());
+                meta.put("totalCount", item.containsKey("totalCount") ? Integer.parseInt(item.get("totalCount").n()) : 0);
+                meta.put("updatedAt", item.containsKey("updatedAt") ? Long.parseLong(item.get("updatedAt").n()) : 0L);
+                list.add(meta);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to list guides from DynamoDB for game {}: {}", gameId, ex.getMessage());
+        }
+        return list;
+    }
+
+    public boolean deleteGuide(String gameId, String guideSlug) {
+        try {
+            Map<String, AttributeValue> key = new HashMap<>();
+            key.put("gameId", AttributeValue.builder().s(gameId).build());
+            key.put("guideSlug", AttributeValue.builder().s(guideSlug).build());
+
+            dynamoDbClient.deleteItem(DeleteItemRequest.builder()
+                    .tableName(DynamoDbConfig.GUIDES_TABLE)
+                    .key(key)
+                    .build());
+
+            redisTemplate.delete("guide:" + gameId + ":" + guideSlug);
+            redisTemplate.delete("guides:list:" + gameId);
+            return true;
+        } catch (Exception ex) {
+            log.error("Failed to delete guide {}_{}: {}", gameId, guideSlug, ex.getMessage());
+            return false;
+        }
+    }
+
+    }

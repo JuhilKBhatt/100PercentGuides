@@ -19,6 +19,7 @@ public class DynamoDbConfig {
 
     private static final Logger log = LoggerFactory.getLogger(DynamoDbConfig.class);
     public static final String TABLE_NAME = "GameCache";
+    public static final String GUIDES_TABLE = "GameGuides";
 
     @Value("${aws.region:us-east-1}")
     private String region;
@@ -37,7 +38,6 @@ public class DynamoDbConfig {
         String effectiveKey = accessKeyId;
         String effectiveSecret = secretAccessKey;
         if (endpoint != null && !endpoint.isBlank()) {
-            // Local DynamoDB requires standard alphanumeric credentials
             if (effectiveKey == null || effectiveKey.contains("_") || effectiveKey.isBlank() || effectiveKey.startsWith("your_")) {
                 effectiveKey = "DUMMYKEYEXAMPLE12345";
                 effectiveSecret = "DUMMYSECRETKEYEXAMPLE123456789012345";
@@ -55,6 +55,7 @@ public class DynamoDbConfig {
 
         DynamoDbClient client = builder.build();
         initTable(client);
+        initGuidesTable(client);
         return client;
     }
 
@@ -83,6 +84,34 @@ public class DynamoDbConfig {
             }
         } catch (Exception ex) {
             log.warn("Could not check DynamoDB table: {}", ex.getMessage());
+        }
+    }
+
+    private void initGuidesTable(DynamoDbClient client) {
+        try {
+            client.describeTable(DescribeTableRequest.builder().tableName(GUIDES_TABLE).build());
+            log.info("DynamoDB table {} already exists.", GUIDES_TABLE);
+        } catch (ResourceNotFoundException e) {
+            log.info("Creating DynamoDB table {}...", GUIDES_TABLE);
+            try {
+                client.createTable(CreateTableRequest.builder()
+                        .tableName(GUIDES_TABLE)
+                        .keySchema(
+                                KeySchemaElement.builder().attributeName("gameId").keyType(KeyType.HASH).build(),
+                                KeySchemaElement.builder().attributeName("guideSlug").keyType(KeyType.RANGE).build()
+                        )
+                        .attributeDefinitions(
+                                AttributeDefinition.builder().attributeName("gameId").attributeType(ScalarAttributeType.S).build(),
+                                AttributeDefinition.builder().attributeName("guideSlug").attributeType(ScalarAttributeType.S).build()
+                        )
+                        .billingMode(BillingMode.PAY_PER_REQUEST)
+                        .build());
+                log.info("Created DynamoDB table {}", GUIDES_TABLE);
+            } catch (Exception ex) {
+                log.error("Failed to create DynamoDB table {}: {}", GUIDES_TABLE, ex.getMessage());
+            }
+        } catch (Exception ex) {
+            log.warn("Could not check DynamoDB table {}: {}", GUIDES_TABLE, ex.getMessage());
         }
     }
 }

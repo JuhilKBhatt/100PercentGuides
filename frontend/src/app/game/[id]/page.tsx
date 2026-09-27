@@ -1,7 +1,9 @@
 import React from "react";
 import AdCarousel from "@/components/AdCarousel";
 import BuyButton from "@/components/BuyButton";
-import { getGameDetails, getGameAchievements } from "@/lib/api";
+import { getGameDetails, getGameAchievements, listGameGuides } from "@/lib/api";
+import GuidesListSection from "@/components/guide/GuidesListSection";
+import AchievementsList from "@/components/achievement/AchievementsList";
 import { cleanGameDescription } from "@/utils/format";
 import { getAffiliateBuyUrl } from "@/utils/affiliate";
 import { getAchievementTierInfo } from "@/utils/achievement";
@@ -11,6 +13,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const game = await getGameDetails(id);
   const achievements = await getGameAchievements(id);
+  const initialGuides = await listGameGuides(id);
 
   if (!game) {
     return (
@@ -120,6 +123,27 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
                   {completionTime}
                 </span>
               </div>
+
+              {game.steamAppId && (
+                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-zinc-900">
+                  <span className="text-zinc-400 flex items-center gap-2 text-xs">
+                    <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.029 4.524 4.524s-2.03 4.524-4.524 4.524h-.105l-4.076 2.911c0 .052.005.105.005.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.733L.438 15.05C1.562 20.166 6.342 24 11.979 24c6.627 0 12-5.373 12-12S18.605 0 11.979 0z" />
+                    </svg>
+                    Steam Game ID
+                  </span>
+                  <a
+                    href={game.steamUrl || `https://store.steampowered.com/app/${game.steamAppId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-xs font-bold text-blue-400 hover:text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                    title="View Steam App ID (Steam Login Tracking Ready)"
+                  >
+                    <span>{game.steamAppId}</span>
+                    <span className="text-[10px] text-zinc-500 font-sans">↗</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -131,7 +155,8 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
 
         {/* Ads Section */}
         <AdCarousel />
-        
+
+
         {/* About Section */}
         <div className="p-6 bg-black border border-zinc-900 rounded-2xl shadow-xl prose prose-invert max-w-none text-zinc-300">
           <h3 className="text-2xl font-bold font-outfit mb-4 bg-clip-text text-transparent bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400">
@@ -140,64 +165,15 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
           <div dangerouslySetInnerHTML={{ __html: sanitizedDescription }}></div>
         </div>
         
-        {/* Achievements Section */}
-        <div>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-3xl font-bold font-outfit text-white flex items-center gap-3">
-              <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block"></span>
-              Achievements ({achievements.length})
-            </h2>
-          </div>
+        {/* Interactive Collectible Guides Loaded from Database */}
+        <GuidesListSection 
+          gameId={id} 
+          gameSlug={game.name.toLowerCase().replace(/\s+/g, "-")} 
+          initialGuides={initialGuides} 
+        />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {achievements.length > 0 ? (
-              achievements.map((ach) => {
-                const tierInfo = getAchievementTierInfo(ach.percent);
-                return (
-                  <div 
-                    key={ach.id} 
-                    className="flex gap-4 p-4 bg-black border border-zinc-900 rounded-xl hover:border-orange-500/50 hover:shadow-[0_0_25px_rgba(249,115,22,0.12)] transition-all group"
-                  >
-                    {ach.image ? (
-                      <img 
-                        src={ach.image} 
-                        alt={ach.name} 
-                        className="w-16 h-16 rounded-lg object-cover shadow-md group-hover:scale-105 transition-transform border border-zinc-900 shrink-0" 
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg bg-zinc-950 border border-zinc-900 shrink-0"></div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span 
-                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${tierInfo.dotClass} ${tierInfo.glowClass}`}
-                            title={tierInfo.tooltip}
-                            aria-label={tierInfo.tooltip}
-                          />
-                          <h4 className="font-semibold text-white group-hover:text-amber-400 transition-colors truncate">
-                            {ach.name}
-                          </h4>
-                        </div>
-                        {tierInfo.percentDisplay && (
-                          <span 
-                            className="text-[11px] font-medium text-zinc-500 shrink-0 font-mono"
-                            title={tierInfo.tooltip}
-                          >
-                            {tierInfo.percentDisplay}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-zinc-400 mt-1 line-clamp-2">{ach.description}</p>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="text-zinc-500 col-span-full">No achievements found for this game.</p>
-            )}
-          </div>
-        </div>
+        {/* Achievements Section with Hidden / Secret Achievement Support */}
+        <AchievementsList achievements={achievements} />
       </div>
     </div>
   );

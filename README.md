@@ -10,8 +10,14 @@ A high-performance, modern mobile-first video game achievement and 100% completi
 - **Cache:** Redis
 
 ## Features
+- **Database-Driven Collectible Guides & Map Framework:**
+  - Guides, steps, and map coordinates stored directly in AWS DynamoDB (`GameGuides` table) with Redis L1 caching.
+  - Manual creation via In-App Guide Creator Modal (Visual Form + JSON import/export) or Python CLI seeder (`scripts/seed_guide.py`).
+  - Standalone guide routes (`/game/[id]/[guideSlug]`) with responsive split-screen vector map and step-by-step checklist.
+- **Interactive Vector Game Maps & Step-by-Step Guides:** Standalone interactive guide pages with high-performance vector SVG maps, numbered location pins, and region-grouped step checklists.
 - **Dynamic 100% Game Completion Guides:** Detailed breakdown of game achievements and playtime.
-- **Achievement Rarity Tiering:** Dynamic colored rarity indicators based on live RAWG unlock percentages (≤5% Gold, ≤50% Silver, >50% Bronze).
+- **Steam App ID & Live Tracking Support:** Dynamic resolution of Steam App IDs from RAWG and Steam Store Search with rate-limit resilient multi-tiered caching (Redis L1 + DynamoDB L2) for official Steam achievements and player progress tracking.
+- **Achievement Rarity Tiering & Hidden Achievement Support:** Dynamic colored rarity indicators (≤5% Gold, ≤50% Silver, >50% Bronze) paired with Steam Web API schema enrichment to uncover secret/storyline achievements intentionally omitted by RAWG, complete with spoiler controls and category filter tabs (All, Public, Hidden/Secret).
 - **Affiliate & Store Integration:** Automatic localized store/affiliate links with configurable tracking tags and cookies.
 - **Multi-tiered 24-Hour Cache:** Redis in-memory L1 cache and AWS DynamoDB persistent L2 cache.
 

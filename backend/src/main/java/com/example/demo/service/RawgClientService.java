@@ -125,4 +125,12 @@ public class RawgClientService {
                     .body(String.class);
         }
     }
+
+    public String getGameStores(String id) {
+        log.info("Calling RAWG API: game stores for id={}", id);
+        return restClient.get()
+                .uri(baseUrl + "/games/{id}/stores?key={key}", id, rawgApiKey)
+                .retrieve()
+                .body(String.class);
+    }
 }
