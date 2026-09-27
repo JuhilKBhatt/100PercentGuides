@@ -40,3 +40,14 @@ export interface Achievement {
   image: string;
   percent?: string;
 }
+export type AchievementTier = "gold" | "silver" | "bronze";
+
+export interface AchievementTierInfo {
+  tier: AchievementTier;
+  label: string;
+  colorClass: string;
+  dotClass: string;
+  glowClass: string;
+  tooltip: string;
+  percentDisplay: string;
+}

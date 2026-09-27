@@ -9,6 +9,12 @@ A high-performance, modern mobile-first video game achievement and 100% completi
 - **Database:** AWS DynamoDB
 - **Cache:** Redis
 
+## Features
+- **Dynamic 100% Game Completion Guides:** Detailed breakdown of game achievements and playtime.
+- **Achievement Rarity Tiering:** Dynamic colored rarity indicators based on live RAWG unlock percentages (≤5% Gold, ≤50% Silver, >50% Bronze).
+- **Affiliate & Store Integration:** Automatic localized store/affiliate links with configurable tracking tags and cookies.
+- **Multi-tiered 24-Hour Cache:** Redis in-memory L1 cache and AWS DynamoDB persistent L2 cache.
+
 ## Setup Instructions
 
 1. **Configure Secrets**
