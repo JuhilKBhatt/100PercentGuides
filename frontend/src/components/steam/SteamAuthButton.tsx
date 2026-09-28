@@ -117,7 +117,7 @@ export default function SteamAuthButton() {
 
         <button
           onClick={() => setManualModalOpen(true)}
-          title="Connect via Steam ID or Profile URL"
+          title="Connect via Steam ID or Profile URL (View Privacy Collection Notice)"
           className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-orange-500/40 text-zinc-400 hover:text-orange-400 transition-colors"
         >
           <Key className="w-3.5 h-3.5" />

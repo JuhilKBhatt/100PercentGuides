@@ -2,15 +2,23 @@
 
 import React, { useState } from "react";
 import { useSteamAuth } from "@/context/SteamAuthContext";
-import { X, Loader2, Link2, AlertCircle } from "lucide-react";
+import { X, Loader2, Link2, AlertCircle, Shield, ExternalLink } from "lucide-react";
 
 interface ManualSteamModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+export function SteamIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 0a12 12 0 0 0-12 12c0 5.4 3.56 9.97 8.53 11.53l3.05-4.44a3.86 3.86 0 0 1-.58-.04l-2.4 1.39a2.53 2.53 0 0 1-3.23-1.07 2.53 2.53 0 0 1 1.07-3.41l3.52-2.03a4.7 4.7 0 0 1 4.54-6.32 4.7 4.7 0 0 1 4.7 4.7 4.7 4.7 0 0 1-5.63 4.6l-3.05 4.43c.48.07.97.11 1.47.11 6.63 0 12-5.37 12-12S18.63 0 12 0zm0 7.8a4.2 4.2 0 1 0 0 8.4 4.2 4.2 0 0 0 0-8.4zm0 1.2a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm-4.7 7.7a1.33 1.33 0 1 0 0 2.66 1.33 1.33 0 0 0 0-2.66z" />
+    </svg>
+  );
+}
+
 export default function ManualSteamModal({ isOpen, onClose }: ManualSteamModalProps) {
-  const { connectManual } = useSteamAuth();
+  const { connectManual, login } = useSteamAuth();
   const [identifier, setIdentifier] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,15 +60,32 @@ export default function ManualSteamModal({ isOpen, onClose }: ManualSteamModalPr
             <Link2 className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-lg font-bold font-outfit text-white">Connect Steam Profile</h3>
-            <p className="text-xs text-zinc-400">Enter your Steam ID or custom profile URL</p>
+            <h3 className="text-lg font-bold font-outfit text-white">Connect Steam Account</h3>
+            <p className="text-xs text-zinc-400">Sync live achievements and track your 100% progress</p>
           </div>
         </div>
 
+        {/* Option 1: Official Steam OpenID */}
+        <div className="mb-5 pb-5 border-b border-zinc-900 space-y-2">
+          <button
+            type="button"
+            onClick={() => login()}
+            className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#171a21] hover:bg-[#1b2838] border border-[#2a475e] hover:border-[#66c0f4] text-white text-xs font-bold shadow-md transition-all"
+          >
+            <SteamIcon className="w-4 h-4 text-[#66c0f4]" />
+            <span>Sign in with Official Steam OpenID</span>
+            <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
+          </button>
+          <p className="text-[10px] text-zinc-400 text-center">
+            Redirects securely to Valve&apos;s official login portal.
+          </p>
+        </div>
+
+        {/* Option 2: Manual Profile Connection */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-              Steam ID64 or Profile Link
+              Or Connect via Steam ID64 or Custom URL
             </label>
             <input
               type="text"
@@ -71,7 +96,7 @@ export default function ManualSteamModal({ isOpen, onClose }: ManualSteamModalPr
               className="w-full px-3.5 py-2.5 bg-black border border-zinc-800 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition-colors"
               autoFocus
             />
-            <p className="text-[11px] text-zinc-500 mt-1.5">
+            <p className="text-[11px] text-zinc-400 mt-1.5">
               Tip: Your profile must have &quot;Game details: Public&quot; in Steam Privacy Settings to allow achievement syncing.
             </p>
           </div>
@@ -82,6 +107,20 @@ export default function ManualSteamModal({ isOpen, onClose }: ManualSteamModalPr
               <span>{error}</span>
             </div>
           )}
+
+          {/* Australian Privacy Principle (APP 5) Collection Notice */}
+          <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-[11px] text-zinc-400 space-y-1">
+            <div className="flex items-center gap-1.5 text-zinc-300 font-semibold">
+              <Shield className="w-3.5 h-3.5 text-orange-400" />
+              <span>Privacy Collection Notice (APP 5)</span>
+            </div>
+            <p className="leading-relaxed">
+              100PercentGuides collects your public Steam ID, persona name, avatar, and unlocked achievements solely to display your personalized progress. We never access passwords, email addresses, or payment details. For more information on your access and correction rights, see our{" "}
+              <a href="/privacy" target="_blank" className="text-orange-400 underline hover:text-orange-300">
+                Privacy Policy
+              </a>.
+            </p>
+          </div>
 
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
