@@ -144,7 +144,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         />
 
         {/* Achievements Section with Hidden / Secret Achievement Support */}
-        <AchievementsList achievements={achievements} />
+        <AchievementsList achievements={achievements} steamAppId={game.steamAppId} gameName={game.name} />
       </div>
     </div>
   );

@@ -20,3 +20,16 @@ export function cleanGameDescription(description?: string): string {
   // If cleaning stripped almost everything (e.g. single-language non-English title), fall back to original
   return cleaned.length > 50 ? cleaned : description;
 }
+
+/**
+ * Formats a Unix epoch timestamp (seconds) into a readable unlock date string.
+ */
+export function formatUnlockTime(epochSec?: number): string {
+  if (!epochSec || epochSec <= 0) return "";
+  const date = new Date(epochSec * 1000);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}

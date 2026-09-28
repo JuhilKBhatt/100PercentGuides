@@ -44,6 +44,9 @@ export interface Achievement {
   image: string;
   percent?: string;
   hidden?: boolean;
+  steamApiName?: string;
+  completed?: boolean;
+  unlockTime?: number;
 }
 
 export type AchievementTier = "gold" | "silver" | "bronze";

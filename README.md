@@ -16,7 +16,11 @@ A high-performance, modern mobile-first video game achievement and 100% completi
   - Standalone guide routes (`/game/[id]/[guideSlug]`) with multi-map switching, completable achievement badges, interactive vector/raster maps, and live step progress tracking.
 - **Interactive Vector Game Maps & Step-by-Step Guides:** Standalone interactive guide pages with high-performance vector SVG maps, numbered location pins, and region-grouped step checklists.
 - **Dynamic 100% Game Completion Guides:** Detailed breakdown of game achievements and playtime.
-- **Steam App ID & Live Tracking Support:** Dynamic resolution of Steam App IDs from RAWG and Steam Store Search with rate-limit resilient multi-tiered caching (Redis L1 + DynamoDB L2) for official Steam achievements and player progress tracking.
+- **Steam Login & Live Achievement Auto-Checking:**
+  - Official Valve OpenID 2.0 authentication and manual Steam ID / vanity URL linking.
+  - Automatic achievement auto-checking matching player progress against game achievements via `steamApiName`.
+  - Live progress dashboard with interactive progress bar, completed counts, unlock dates, and dedicated filter tabs (All, Completed, To-Do, Public, Hidden/Secret).
+  - Rate-limit resilient multi-tier caching (Redis L1 + DynamoDB L2) protecting against Valve rate limits.
 - **Achievement Rarity Tiering & Hidden Achievement Support:** Dynamic colored rarity indicators (≤5% Gold, ≤50% Silver, >50% Bronze) paired with Steam Web API schema enrichment to uncover secret/storyline achievements intentionally omitted by RAWG, complete with spoiler controls and category filter tabs (All, Public, Hidden/Secret).
 - **Affiliate & Store Integration:** Automatic localized store/affiliate links with configurable tracking tags and cookies.
 - **Multi-tiered 24-Hour Cache:** Redis in-memory L1 cache and AWS DynamoDB persistent L2 cache.

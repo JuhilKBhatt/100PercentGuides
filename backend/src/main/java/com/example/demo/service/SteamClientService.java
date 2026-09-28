@@ -223,6 +223,74 @@ public class SteamClientService {
     }
 
     /**
+     * Retrieves player's public profile summary (persona name, avatar, profile url).
+     * Multi-tier cached with 15-minute TTL.
+     */
+    public String getPlayerSummary(String steamId) {
+        String cacheKey = "steam:player:" + steamId + ":summary";
+        return gameCacheService.getOrFetch(cacheKey, TTL_PLAYER_STATS, () -> {
+            log.info("Fetching player summary from Steam for steamId={}", steamId);
+            try {
+                throttle();
+                String url = baseUrl + "/ISteamUser/GetPlayerSummaries/v0002/?key={key}&steamids={steamId}";
+                String response = restClient.get()
+                        .uri(url, steamApiKey, steamId)
+                        .retrieve()
+                        .body(String.class);
+
+                return response != null ? response : "{\"response\":{\"players\":[]}}";
+            } catch (Exception ex) {
+                log.error("Failed to fetch player summary for steamId={}: {}", steamId, ex.getMessage());
+                return "{\"response\":{\"players\":[],\"error\":\"" + escapeJson(ex.getMessage()) + "\"}}";
+            }
+        });
+    }
+
+    /**
+     * Resolves a Steam Vanity URL (custom profile name) into a 64-bit Steam ID.
+     */
+    public String resolveVanityUrl(String vanityUrl) {
+        if (vanityUrl == null || vanityUrl.isBlank()) {
+            return "{\"response\":{\"success\":42,\"error\":\"Empty vanity URL\"}}";
+        }
+
+        String clean = vanityUrl.trim();
+        if (clean.contains("/id/")) {
+            clean = clean.substring(clean.indexOf("/id/") + 4);
+        }
+        if (clean.contains("/profiles/")) {
+            clean = clean.substring(clean.indexOf("/profiles/") + 10);
+        }
+        if (clean.endsWith("/")) {
+            clean = clean.substring(0, clean.length() - 1);
+        }
+
+        // If it's already a numeric 17-digit Steam ID64, return it directly
+        if (clean.matches("^7656119\\d{10}$")) {
+            return "{\"response\":{\"steamid\":\"" + clean + "\",\"success\":1}}";
+        }
+
+        final String finalVanity = clean;
+        String cacheKey = "steam:vanity:" + finalVanity;
+        return gameCacheService.getOrFetch(cacheKey, TTL_24_HOURS, () -> {
+            log.info("Resolving vanity URL for: {}", finalVanity);
+            try {
+                throttle();
+                String url = baseUrl + "/ISteamUser/ResolveVanityURL/v0001/?key={key}&vanityurl={vanity}";
+                String response = restClient.get()
+                        .uri(url, steamApiKey, finalVanity)
+                        .retrieve()
+                        .body(String.class);
+
+                return response != null ? response : "{\"response\":{\"success\":42}}";
+            } catch (Exception ex) {
+                log.error("Failed to resolve vanity URL for {}: {}", finalVanity, ex.getMessage());
+                return "{\"response\":{\"success\":42,\"error\":\"" + escapeJson(ex.getMessage()) + "\"}}";
+            }
+        });
+    }
+
+    /**
      * Enriches RAWG achievements with Steam achievements, uncovering all hidden/secret achievements.
      */
     public String enrichAchievementsWithSteam(String gameId, String rawgJson) {
@@ -292,6 +360,9 @@ public class SteamClientService {
                     map.put("image", image);
                     map.put("percent", percent);
                     map.put("hidden", hidden);
+                    if (steamMatch != null && steamMatch.has("name")) {
+                        map.put("steamApiName", steamMatch.path("name").asText(""));
+                    }
                     combinedResults.add(map);
                 }
             }
@@ -317,6 +388,9 @@ public class SteamClientService {
                     map.put("image", icon);
                     map.put("percent", percent);
                     map.put("hidden", hidden);
+                    if (steamAch.has("name")) {
+                        map.put("steamApiName", steamAch.path("name").asText(""));
+                    }
                     combinedResults.add(map);
                 }
             }

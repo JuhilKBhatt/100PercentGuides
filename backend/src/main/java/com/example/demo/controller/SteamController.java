@@ -69,4 +69,22 @@ public class SteamController {
         String data = steamClientService.getOwnedGames(steamId);
         return ResponseEntity.ok(data);
     }
+
+    /**
+     * Retrieves player's public profile summary (persona name, avatar, profile url).
+     */
+    @GetMapping(value = "/steam/player/{steamId}/summary", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> getPlayerSummary(@PathVariable("steamId") String steamId) {
+        String data = steamClientService.getPlayerSummary(steamId);
+        return ResponseEntity.ok(data);
+    }
+
+    /**
+     * Resolves a Steam Vanity URL (custom profile name) into a 64-bit Steam ID.
+     */
+    @GetMapping(value = "/steam/resolve-vanity", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> resolveVanityUrl(@RequestParam("url") String url) {
+        String data = steamClientService.resolveVanityUrl(url);
+        return ResponseEntity.ok(data);
+    }
 }

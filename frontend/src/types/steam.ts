@@ -13,11 +13,12 @@ export interface SteamAchievement {
   percent?: number;
   achieved?: boolean;
   unlockTime?: number;
+  hidden?: boolean;
 }
 
 export interface SteamPlayerAchievementStatus {
   apiname: string;
-  achieved: number;
+  achieved: number; // 1 = unlocked, 0 = locked
   unlocktime: number;
 }
 
@@ -26,6 +27,14 @@ export interface SteamPlayerStats {
   gameName: string;
   achievements: SteamPlayerAchievementStatus[];
   success: boolean;
+}
+
+export interface SteamUser {
+  steamId: string;
+  personaName: string;
+  avatar: string;
+  profileUrl: string;
+  communityVisibilityState?: number;
 }
 
 export interface SteamOwnedGame {
