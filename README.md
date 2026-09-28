@@ -24,7 +24,8 @@ A high-performance, modern mobile-first video game achievement and 100% completi
   - Rate-limit resilient multi-tier caching (Redis L1 + DynamoDB L2) protecting against Valve rate limits.
 - **Achievement Rarity Tiering & Hidden Achievement Support:** Dynamic colored rarity indicators (≤5% Gold, ≤50% Silver, >50% Bronze) paired with Steam Web API schema enrichment to uncover secret/storyline achievements intentionally omitted by RAWG, complete with spoiler controls, strict Unicode whitespace deduplication (`\u00A0`), category filter tabs (All, Public, Hidden/Secret), and Steam as exclusive source of truth for exact Steam schema counts (e.g. 77/77 for GTA V).
 - **Affiliate & Store Integration:** Automatic localized store/affiliate links with configurable tracking tags and cookies.
-- **Google AdSense Begin-to-Render Compliant Ad Carousel:**
+- **Google AdSense Begin-to-Render Compliant Ad Carousel & Home Ad Cards:**
+  - Dual responsive home page ad cards (`AdCard.tsx`) designed for standard Medium Rectangle (300×250 / responsive) placements, integrated seamlessly into the dark glassmorphic UI.
   - Infinitely looping carousel (`loop: true`) with interactive navigation dots, swipe gestures, and slide controls.
   - Strict **User-Action-Only** policy (zero autoplay/automated rotation timers) preventing AdSense automated refresh penalties.
   - Full **Begin-to-Render Standard** adherence (2027 global standard): Dual-gated activation (`IntersectionObserver` at >=50% viewport visibility + user-selected active slide check) ensures impressions are only counted when ads finish loading and visually render.

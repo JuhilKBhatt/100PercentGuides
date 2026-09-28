@@ -1,6 +1,7 @@
 import React from "react";
 import SearchBar from "@/components/SearchBar";
 import AdCarousel from "@/components/AdCarousel";
+import AdCard from "@/components/AdCard";
 import Link from "next/link";
 import { getRecentGames } from "@/lib/api";
 
@@ -24,13 +25,19 @@ export default async function Home() {
 
       <div className="w-full max-w-6xl mx-auto space-y-16 mt-8">
         <AdCarousel />
+
+        {/* Two Featured Ad Space Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+          <AdCard slotIndex={1} title="Sponsored Ad Space" />
+          <AdCard slotIndex={2} title="Featured Partner Space" />
+        </div>
         
         <div className="space-y-8">
           <h2 className="text-3xl font-bold font-outfit text-white flex items-center gap-3">
             <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block"></span>
             Recently Released
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {recentGames.map((game) => (
               <Link 
                 href={`/game/${game.id}`} 
