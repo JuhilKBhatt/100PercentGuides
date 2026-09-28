@@ -2,7 +2,6 @@ import React from "react";
 import AdCarousel from "@/components/AdCarousel";
 import BuyButton from "@/components/BuyButton";
 import { getGameDetails, getGameAchievements, listGameGuides } from "@/lib/api";
-import GuidesListSection from "@/components/guide/GuidesListSection";
 import AchievementsList from "@/components/achievement/AchievementsList";
 import { cleanGameDescription } from "@/utils/format";
 import { getAffiliateBuyUrl } from "@/utils/affiliate";
@@ -135,16 +134,14 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         {/* Ads Section */}
         <AdCarousel />
         
-        {/* Interactive Collectible Guides Loaded from Database */}
-        <GuidesListSection 
-          gameId={id} 
-          gameSlug={game.name.toLowerCase().replace(/\s+/g, "-")} 
-          initialGuides={initialGuides} 
-          achievements={achievements}
+        {/* Achievements Section with Integrated Step-by-Step Checklists */}
+        <AchievementsList 
+          achievements={achievements} 
+          steamAppId={game.steamAppId} 
+          gameName={game.name}
+          gameId={id}
+          initialGuides={initialGuides}
         />
-
-        {/* Achievements Section with Hidden / Secret Achievement Support */}
-        <AchievementsList achievements={achievements} steamAppId={game.steamAppId} gameName={game.name} />
       </div>
     </div>
   );

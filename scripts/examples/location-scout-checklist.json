@@ -1,0 +1,83 @@
+{
+  "gameId": "3498",
+  "gameSlug": "grand-theft-auto-v",
+  "guideSlug": "ach-104819",
+  "title": "Location Scout Checklist",
+  "subtitle": "Visit all 5 Director Mode locations in Los Santos & Blaine County.",
+  "totalCount": 5,
+  "requiredForCompletion": 5,
+  "achievementId": "104819",
+  "relatedAchievements": [
+    {
+      "id": 104819,
+      "name": "Location Scout"
+    }
+  ],
+  "maps": [
+    {
+      "id": "map-1",
+      "name": "San Andreas"
+    }
+  ],
+  "regions": [
+    {
+      "id": "los-santos",
+      "name": "Los Santos",
+      "itemCount": 3,
+      "items": [
+        {
+          "id": 1,
+          "name": "Legion Square",
+          "region": "Los Santos",
+          "locationText": "Downtown central plaza near Maze Bank Tower.",
+          "details": "Enter Director Mode and warp or drive to Legion Square.",
+          "x": 52.4,
+          "y": 68.2
+        },
+        {
+          "id": 2,
+          "name": "Del Perro Pier",
+          "region": "Los Santos",
+          "locationText": "End of the wooden boardwalk next to the Ferris Wheel.",
+          "details": "Walk all the way to the oceanfront deck.",
+          "x": 38.1,
+          "y": 64.8
+        },
+        {
+          "id": 3,
+          "name": "Vinewood Sign",
+          "region": "Los Santos",
+          "locationText": "Top of the Mount Haan ridge directly behind the letter D.",
+          "details": "Best accessed via helicopter or driving up the dirt path.",
+          "x": 58.5,
+          "y": 55.1
+        }
+      ]
+    },
+    {
+      "id": "blaine-county",
+      "name": "Blaine County",
+      "itemCount": 2,
+      "items": [
+        {
+          "id": 4,
+          "name": "Mount Chiliad Peak",
+          "region": "Blaine County",
+          "locationText": "Cable car observation deck at the peak.",
+          "details": "Step onto the viewing platform overlooking the Alamo Sea.",
+          "x": 48.2,
+          "y": 22.4
+        },
+        {
+          "id": 5,
+          "name": "Paleto Bay Beach",
+          "region": "Blaine County",
+          "locationText": "Northernmost coast near the cable car station.",
+          "details": "Walk along the shoreline to trigger location discovery.",
+          "x": 41.6,
+          "y": 14.5
+        }
+      ]
+    }
+  ]
+}

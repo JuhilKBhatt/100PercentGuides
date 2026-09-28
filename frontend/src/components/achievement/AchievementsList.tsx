@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
-import { Achievement } from "@/types/game";
+import { Achievement, GuideMeta, CollectibleGuide } from "@/types";
 import { getAchievementTierInfo } from "@/utils/achievement";
 import { formatUnlockTime } from "@/utils/format";
 import { useSteamAuth } from "@/context/SteamAuthContext";
 import { SteamIcon } from "@/components/steam/SteamAuthButton";
 import ManualSteamModal from "@/components/steam/ManualSteamModal";
+import AchievementChecklistDrawer from "./AchievementChecklistDrawer";
+import GuideCreatorModal from "@/components/guide/GuideCreatorModal";
+import { listGameGuides, getCollectibleGuide } from "@/lib/api";
 import {
   EyeOff,
   Trophy,
@@ -18,14 +21,20 @@ import {
   RefreshCw,
   AlertCircle,
   Key,
-  ExternalLink,
   Target,
+  CheckSquare,
+  Plus,
+  Edit2,
+  Code,
+  FileCode,
 } from "lucide-react";
 
 interface AchievementsListProps {
   achievements: Achievement[];
   steamAppId?: string;
   gameName?: string;
+  gameId?: string;
+  initialGuides?: GuideMeta[];
 }
 
 type FilterTab = "all" | "completed" | "todo" | "public" | "hidden";
@@ -36,17 +45,192 @@ interface SteamPlayerAchievementData {
 }
 
 export default function AchievementsList({
-  achievements,
+  achievements: rawAchievements,
   steamAppId,
-  gameName,
+  gameName = "Game",
+  gameId = "3498",
+  initialGuides = [],
 }: AchievementsListProps) {
   const { user, login } = useSteamAuth();
+
+  // Steam as exclusive source of truth when logged in with Steam or Steam App ID linked
+  const achievements = useMemo(() => {
+    let sourceList = rawAchievements;
+
+    // If logged in with Steam or game has Steam counterpart, enforce Steam as sole source of truth
+    if (steamAppId || user?.steamId) {
+      const steamOnly = sourceList.filter((a) => Boolean(a.steamApiName));
+      if (steamOnly.length > 0) {
+        sourceList = steamOnly;
+      }
+    }
+
+    const seenCanons = new Set<string>();
+    const seenApis = new Set<string>();
+    const seenIds = new Set<number>();
+    const list: Achievement[] = [];
+
+    for (const ach of sourceList) {
+      if (!ach) continue;
+      const clean = (ach.name || "").replace(/[ ​]/g, " ").replace(/\s+/g, " ").trim();
+      const canon = clean.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const api = ach.steamApiName?.trim();
+
+      if (canon && seenCanons.has(canon)) continue;
+      if (api && seenApis.has(api)) continue;
+      if (ach.id && seenIds.has(ach.id)) continue;
+
+      if (canon) seenCanons.add(canon);
+      if (api) seenApis.add(api);
+      if (ach.id) seenIds.add(ach.id);
+      list.push({ ...ach, name: clean });
+    }
+
+    return list;
+  }, [rawAchievements, steamAppId, user?.steamId]);
+
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [revealSpoilers, setRevealSpoilers] = useState(false);
   const [manualModalOpen, setManualModalOpen] = useState(false);
 
-  // Steam sync state
+  // --- Guides & Checklists State ---
+  const [guides, setGuides] = useState<GuideMeta[]>(initialGuides);
+  const [checklistProgress, setChecklistProgress] = useState<Record<number, { completed: number; total: number }>>({});
+
+  // Drawer & Modal States
+  const [selectedAchievementForDrawer, setSelectedAchievementForDrawer] = useState<Achievement | null>(null);
+  const [selectedGuideForDrawer, setSelectedGuideForDrawer] = useState<GuideMeta | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Guide Creator Modal State
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
+  const [creatorAchievement, setCreatorAchievement] = useState<Achievement | null>(null);
+  const [creatorGuide, setCreatorGuide] = useState<CollectibleGuide | null>(null);
+  const [creatorTab, setCreatorTab] = useState<"general" | "builder" | "json">("general");
+
+  // Fetch guides from API
+  const fetchGuides = useCallback(async () => {
+    if (!gameId) return;
+    const data = await listGameGuides(gameId);
+    setGuides(data);
+  }, [gameId]);
+
+  useEffect(() => {
+    fetchGuides();
+  }, [fetchGuides]);
+
+  // Map achievements to guides
+  const achievementGuideMap = useMemo(() => {
+    const map = new Map<number, GuideMeta>();
+
+    for (const guide of guides) {
+      // 1. Check direct achievementId
+      if (guide.achievementId) {
+        const idNum = Number(guide.achievementId);
+        if (!isNaN(idNum)) {
+          map.set(idNum, guide);
+        }
+      }
+
+      // 2. Check multiple achievementIds array
+      if (guide.achievementIds && Array.isArray(guide.achievementIds)) {
+        for (const rawId of guide.achievementIds) {
+          const idNum = Number(rawId);
+          if (!isNaN(idNum)) {
+            map.set(idNum, guide);
+          }
+        }
+      }
+
+      // 3. Check guideSlug match: ach-12345
+      const slugMatch = guide.guideSlug.match(/^ach-(\d+)$/);
+      if (slugMatch) {
+        const idNum = Number(slugMatch[1]);
+        map.set(idNum, guide);
+      }
+
+      // 4. Fallback: match by title similarity
+      for (const ach of achievements) {
+        if (
+          guide.title.toLowerCase().includes(ach.name.toLowerCase()) ||
+          ach.name.toLowerCase().includes(guide.title.toLowerCase())
+        ) {
+          if (!map.has(ach.id)) {
+            map.set(ach.id, guide);
+          }
+        }
+      }
+    }
+
+    return map;
+  }, [guides, achievements]);
+
+  // Load progress for each guide from localStorage
+  const refreshChecklistProgress = useCallback(() => {
+    if (typeof window === "undefined" || !gameId) return;
+    const nextProgress: Record<number, { completed: number; total: number }> = {};
+
+    achievements.forEach((ach) => {
+      const guideMeta = achievementGuideMap.get(ach.id);
+      if (guideMeta) {
+        const storageKey = `100pg_guide_${gameId}_${guideMeta.guideSlug}`;
+        try {
+          const raw = localStorage.getItem(storageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const completed = Object.values(parsed).filter(Boolean).length;
+            nextProgress[ach.id] = { completed, total: guideMeta.totalCount };
+          } else {
+            nextProgress[ach.id] = { completed: 0, total: guideMeta.totalCount };
+          }
+        } catch (e) {
+          nextProgress[ach.id] = { completed: 0, total: guideMeta.totalCount };
+        }
+      }
+    });
+
+    setChecklistProgress(nextProgress);
+  }, [gameId, achievements, achievementGuideMap]);
+
+  useEffect(() => {
+    refreshChecklistProgress();
+  }, [refreshChecklistProgress]);
+
+  // Open Drawer to view checklist
+  const handleOpenDrawer = (ach: Achievement) => {
+    const guideMeta = achievementGuideMap.get(ach.id) || null;
+    setSelectedAchievementForDrawer(ach);
+    setSelectedGuideForDrawer(guideMeta);
+    setIsDrawerOpen(true);
+  };
+
+  // Open Creator to add a new checklist
+  const handleAddChecklist = (ach: Achievement) => {
+    setCreatorAchievement(ach);
+    setCreatorGuide(null);
+    setCreatorTab("general");
+    setCreatorModalOpen(true);
+  };
+
+  // Open Creator to edit an existing checklist
+  const handleEditChecklist = async (ach: Achievement, guideMeta: GuideMeta) => {
+    const guideData = await getCollectibleGuide(gameId, guideMeta.guideSlug);
+    setCreatorAchievement(ach);
+    setCreatorGuide(guideData);
+    setCreatorTab("builder");
+    setCreatorModalOpen(true);
+  };
+
+  // Open Creator in JSON Import Mode
+  const handleOpenJsonImport = () => {
+    setCreatorAchievement(null);
+    setCreatorGuide(null);
+    setCreatorTab("json");
+    setCreatorModalOpen(true);
+  };
+
+  // --- Steam Sync State ---
   const [steamUnlockedMap, setSteamUnlockedMap] = useState<Map<string, SteamPlayerAchievementData>>(new Map());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -67,9 +251,7 @@ export default function AchievementsList({
             setLocalCompletedIds(new Set(parsed));
           }
         }
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) {}
     }
   }, [steamAppId, achievements]);
 
@@ -150,7 +332,6 @@ export default function AchievementsList({
     (ach: Achievement): { isCompleted: boolean; unlockTime: number; fromSteam: boolean } => {
       // 1. Check Steam sync
       if (user?.steamId && steamUnlockedMap.size > 0) {
-        // Try steamApiName match
         if (ach.steamApiName) {
           const steamStatus = steamUnlockedMap.get(ach.steamApiName.toLowerCase());
           if (steamStatus?.achieved) {
@@ -158,7 +339,6 @@ export default function AchievementsList({
           }
         }
 
-        // Try normalized displayName match
         const nameKey = ach.name.trim().toLowerCase();
         const steamNameStatus = steamUnlockedMap.get(nameKey);
         if (steamNameStatus?.achieved) {
@@ -166,7 +346,12 @@ export default function AchievementsList({
         }
       }
 
-      // 2. Check local manual toggle
+      // When logged in with Steam, Steam is the EXCLUSIVE source of truth (do not allow local checks to alter Steam stats)
+      if (user?.steamId) {
+        return { isCompleted: false, unlockTime: 0, fromSteam: false };
+      }
+
+      // 2. Offline / Guest manual toggle fallback (only for non-logged-in users)
       if (localCompletedIds.has(ach.id)) {
         return { isCompleted: true, unlockTime: 0, fromSteam: false };
       }
@@ -374,8 +559,20 @@ export default function AchievementsList({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h2 className="text-3xl font-bold font-outfit text-white flex items-center gap-3">
             <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block"></span>
-            Achievements ({achievements.length})
+            Achievements & Checklists ({achievements.length})
           </h2>
+
+          {/* Bulk Import / Create Action Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenJsonImport}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
+              title="Bulk import or paste guide JSON"
+            >
+              <FileCode className="w-3.5 h-3.5 text-orange-400" />
+              <span>Import Checklist JSON</span>
+            </button>
+          </div>
         </div>
 
         {/* Filter Tabs & Search Bar */}
@@ -457,19 +654,20 @@ export default function AchievementsList({
         </div>
       </div>
 
-      {/* Grid of Achievements */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Grid of Achievements with Checklist Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
         {filteredAchievements.length > 0 ? (
           filteredAchievements.map((ach) => {
             const tierInfo = getAchievementTierInfo(ach.percent);
-            const { isCompleted, unlockTime, fromSteam } = getAchievementStatus(ach);
-            // If already completed by player, auto-reveal spoiler
+            const { isCompleted, unlockTime } = getAchievementStatus(ach);
             const isMasked = ach.hidden && !revealSpoilers && !isCompleted;
+            const attachedGuide = achievementGuideMap.get(ach.id);
+            const progress = checklistProgress[ach.id];
 
             return (
               <div
                 key={ach.id}
-                className={`flex gap-4 p-4 rounded-xl transition-all group relative overflow-hidden border ${
+                className={`flex flex-col justify-between p-4 rounded-xl transition-all group relative overflow-hidden border ${
                   isCompleted
                     ? "border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-zinc-950 to-black hover:border-emerald-400/70 hover:shadow-[0_0_25px_rgba(16,185,129,0.15)]"
                     : ach.hidden
@@ -477,115 +675,163 @@ export default function AchievementsList({
                     : "border-zinc-900 bg-black hover:border-orange-500/50 hover:shadow-[0_0_25px_rgba(249,115,22,0.12)]"
                 }`}
               >
-                {/* Left: Checkbox & Achievement Icon */}
-                <div className="flex items-center gap-3 shrink-0">
-                  {/* Interactive completion toggle */}
-                  <button
-                    onClick={() => toggleLocalCompletion(ach.id)}
-                    className="p-1 rounded-lg text-zinc-500 hover:text-white transition-colors focus:outline-none"
-                    title={isCompleted ? "Completed! Click to toggle manual state" : "Click to mark as completed"}
-                  >
-                    {isCompleted ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]" />
-                    ) : (
-                      <Circle className="w-5 h-5 text-zinc-700 group-hover:text-zinc-500 transition-colors" />
-                    )}
-                  </button>
+                <div>
+                  <div className="flex gap-4">
+                    {/* Left: Checkbox & Achievement Icon */}
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Interactive completion toggle */}
+                      <button
+                        onClick={() => toggleLocalCompletion(ach.id)}
+                        className="p-1 rounded-lg text-zinc-500 hover:text-white transition-colors focus:outline-none"
+                        title={isCompleted ? "Completed! Click to toggle manual state" : "Click to mark as completed"}
+                      >
+                        {isCompleted ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]" />
+                        ) : (
+                          <Circle className="w-5 h-5 text-zinc-700 group-hover:text-zinc-500 transition-colors" />
+                        )}
+                      </button>
 
-                  {/* Icon */}
-                  <div className="relative">
-                    {ach.image ? (
-                      <img
-                        src={ach.image}
-                        alt={ach.name}
-                        className={`w-14 h-14 rounded-lg object-cover shadow-md group-hover:scale-105 transition-transform border shrink-0 ${
-                          isCompleted
-                            ? "border-emerald-500/50"
-                            : "border-zinc-900"
-                        } ${isMasked ? "blur-md opacity-40" : ""}`}
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-lg bg-zinc-950 border border-zinc-900 shrink-0 flex items-center justify-center">
-                        <Trophy className="w-6 h-6 text-zinc-700" />
-                      </div>
-                    )}
+                      {/* Icon */}
+                      <div className="relative shrink-0">
+                        {ach.image ? (
+                          <img
+                            src={ach.image}
+                            alt={ach.name}
+                            className={`w-10 h-10 rounded-lg object-cover shadow-md group-hover:scale-105 transition-transform border shrink-0 ${
+                              isCompleted
+                                ? "border-emerald-500/50"
+                                : "border-zinc-900"
+                            } ${isMasked ? "blur-md opacity-40" : ""}`}
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-zinc-950 border border-zinc-900 shrink-0 flex items-center justify-center">
+                            <Trophy className="w-4 h-4 text-zinc-700" />
+                          </div>
+                        )}
 
-                    {ach.hidden && !isCompleted && (
-                      <div className="absolute -top-1.5 -left-1.5 bg-amber-500 text-black rounded-full p-1 shadow-md">
-                        <EyeOff className="w-3 h-3" />
+                        {ach.hidden && !isCompleted && (
+                          <div className="absolute -top-1 -left-1 bg-amber-500 text-black rounded-full p-0.5 shadow-md">
+                            <EyeOff className="w-2.5 h-2.5" />
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+
+                    {/* Details */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          <span
+                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${tierInfo.dotClass} ${tierInfo.glowClass}`}
+                            title={tierInfo.tooltip}
+                          />
+                          <h4
+                            className={`font-semibold transition-colors truncate ${
+                              isCompleted
+                                ? "text-emerald-100 group-hover:text-emerald-300"
+                                : ach.hidden
+                                ? "text-amber-100 group-hover:text-amber-300"
+                                : "text-white group-hover:text-amber-400"
+                            }`}
+                          >
+                            {ach.name}
+                          </h4>
+
+                          {/* Completed badge */}
+                          {isCompleted && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              <Check className="w-2.5 h-2.5" />
+                              Unlocked
+                            </span>
+                          )}
+
+                          {/* Secret badge */}
+                          {ach.hidden && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                              Secret
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {tierInfo.percentDisplay && (
+                            <span
+                              className="text-[11px] font-medium text-zinc-500 shrink-0 font-mono"
+                              title={tierInfo.tooltip}
+                            >
+                              {tierInfo.percentDisplay}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <p
+                        className={`text-sm mt-1 line-clamp-2 transition-all ${
+                          isMasked
+                            ? "blur-sm select-none text-zinc-600 cursor-pointer"
+                            : "text-zinc-400"
+                        }`}
+                        onClick={() => {
+                          if (isMasked) setRevealSpoilers(true);
+                        }}
+                        title={isMasked ? "Click to reveal secret description" : undefined}
+                      >
+                        {isMasked ? "Hidden secret storyline details. Click to reveal." : ach.description}
+                      </p>
+
+                      {/* Unlock timestamp if from Steam */}
+                      {isCompleted && unlockTime > 0 && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-mono text-emerald-400/80">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span>Unlocked on {formatUnlockTime(unlockTime)}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${tierInfo.dotClass} ${tierInfo.glowClass}`}
-                        title={tierInfo.tooltip}
-                      />
-                      <h4
-                        className={`font-semibold transition-colors truncate ${
-                          isCompleted
-                            ? "text-emerald-100 group-hover:text-emerald-300"
-                            : ach.hidden
-                            ? "text-amber-100 group-hover:text-amber-300"
-                            : "text-white group-hover:text-amber-400"
-                        }`}
+                {/* Bottom Bar: Checklist Action Button */}
+                <div className="mt-3 pt-3 border-t border-zinc-900/80 flex items-center justify-between gap-3">
+                  {attachedGuide ? (
+                    /* Has Checklist */
+                    <div className="flex items-center justify-between w-full gap-2">
+                      <button
+                        onClick={() => handleOpenDrawer(ach)}
+                        className="flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 text-orange-400 hover:text-orange-300 transition-all text-xs font-semibold group/btn"
                       >
-                        {ach.name}
-                      </h4>
+                        <div className="flex items-center gap-2">
+                          <CheckSquare className="w-4 h-4 text-orange-400 group-hover/btn:scale-110 transition-transform" />
+                          <span>View Checklist & Map</span>
+                        </div>
 
-                      {/* Completed badge */}
-                      {isCompleted && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                          <Check className="w-2.5 h-2.5" />
-                          Unlocked
-                        </span>
-                      )}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-mono font-bold text-amber-300">
+                            {progress?.completed || 0} / {attachedGuide.totalCount} Steps
+                          </span>
+                        </div>
+                      </button>
 
-                      {/* Secret badge */}
-                      {ach.hidden && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                          <Sparkles className="w-2.5 h-2.5 text-amber-400" />
-                          Secret
-                        </span>
-                      )}
+                      <button
+                        onClick={() => handleEditChecklist(ach, attachedGuide)}
+                        className="p-1.5 rounded-xl text-zinc-500 hover:text-white bg-zinc-950 border border-zinc-900 hover:border-zinc-800 transition-colors"
+                        title="Edit Checklist"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      {tierInfo.percentDisplay && (
-                        <span
-                          className="text-[11px] font-medium text-zinc-500 shrink-0 font-mono"
-                          title={tierInfo.tooltip}
-                        >
-                          {tierInfo.percentDisplay}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <p
-                    className={`text-sm mt-1 line-clamp-2 transition-all ${
-                      isMasked
-                        ? "blur-sm select-none text-zinc-600 cursor-pointer"
-                        : "text-zinc-400"
-                    }`}
-                    onClick={() => {
-                      if (isMasked) setRevealSpoilers(true);
-                    }}
-                    title={isMasked ? "Click to reveal secret description" : undefined}
-                  >
-                    {isMasked ? "Hidden secret storyline details. Click to reveal." : ach.description}
-                  </p>
-
-                  {/* Unlock timestamp if from Steam */}
-                  {isCompleted && unlockTime > 0 && (
-                    <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-mono text-emerald-400/80">
-                      <Check className="w-3 h-3 text-emerald-400" />
-                      <span>Unlocked on {formatUnlockTime(unlockTime)}</span>
+                  ) : (
+                    /* No Checklist Yet */
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[11px] text-zinc-600 italic">No checklist attached</span>
+                      <button
+                        onClick={() => handleAddChecklist(ach)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-950 hover:bg-zinc-900 border border-zinc-800/80 hover:border-orange-500/40 transition-all"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-orange-400" />
+                        <span>Add Checklist</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -609,6 +855,53 @@ export default function AchievementsList({
         )}
       </div>
 
+      {/* Slide-over Drawer for Achievement Checklist & Map */}
+      <AchievementChecklistDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        achievement={selectedAchievementForDrawer}
+        gameId={gameId}
+        gameName={gameName}
+        guideMeta={selectedGuideForDrawer}
+        onOpenCreator={(ach, existingGuide) => {
+          setIsDrawerOpen(false);
+          setCreatorAchievement(ach);
+          setCreatorGuide(existingGuide || null);
+          setCreatorTab(existingGuide ? "builder" : "general");
+          setCreatorModalOpen(true);
+        }}
+        onGuideDeleted={() => {
+          fetchGuides();
+          refreshChecklistProgress();
+        }}
+        onChecklistProgressChange={(achId, completedCount, totalCount) => {
+          setChecklistProgress((prev) => ({
+            ...prev,
+            [achId]: { completed: completedCount, total: totalCount },
+          }));
+        }}
+      />
+
+      {/* Guide Creator Modal */}
+      <GuideCreatorModal
+        gameId={gameId}
+        availableAchievements={achievements}
+        initialAchievement={creatorAchievement}
+        initialGuide={creatorGuide}
+        initialTab={creatorTab}
+        isOpen={creatorModalOpen}
+        onClose={() => {
+          setCreatorModalOpen(false);
+          setCreatorAchievement(null);
+          setCreatorGuide(null);
+        }}
+        onGuideCreated={() => {
+          fetchGuides();
+          refreshChecklistProgress();
+        }}
+      />
+
+      {/* Manual Steam Connection Modal */}
       <ManualSteamModal
         isOpen={manualModalOpen}
         onClose={() => setManualModalOpen(false)}

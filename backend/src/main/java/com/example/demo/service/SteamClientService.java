@@ -290,8 +290,25 @@ public class SteamClientService {
         });
     }
 
+    public String cleanAchievementName(String name) {
+        if (name == null) return "";
+        return name.replace(' ', ' ')
+                   .replace('​', ' ')
+                   .replaceAll("\s+", " ")
+                   .strip();
+    }
+
+    public String canonicalKey(String name) {
+        if (name == null) return "";
+        return cleanAchievementName(name)
+                .replaceAll("[^a-zA-Z0-9]", "")
+                .toLowerCase(Locale.ROOT);
+    }
+
     /**
-     * Enriches RAWG achievements with Steam achievements, uncovering all hidden/secret achievements.
+     * Enriches RAWG achievements with Steam achievements, uncovering all hidden/secret achievements
+     * while guaranteeing strict deduplication across Unicode whitespace, punctuation variations,
+     * and Steam API names.
      */
     public String enrichAchievementsWithSteam(String gameId, String rawgJson) {
         if (rawgJson == null || rawgJson.isBlank()) {
@@ -304,49 +321,92 @@ public class SteamClientService {
             JsonNode mappingNode = objectMapper.readTree(mappingJson);
             String steamAppId = mappingNode.path("steamAppId").asText(null);
             if (steamAppId == null || steamAppId.isBlank()) {
-                return rawgJson; // No Steam counterpart, return RAWG data as-is
+                return sanitizeAchievementsJson(rawgJson);
             }
 
             // 2. Fetch full Steam achievements (which include all hidden: 1 achievements)
             String steamAchsJson = getSteamAchievements(steamAppId);
             if (steamAchsJson == null || steamAchsJson.isBlank()) {
-                return rawgJson;
+                return sanitizeAchievementsJson(rawgJson);
             }
 
             JsonNode steamRoot = objectMapper.readTree(steamAchsJson);
             JsonNode steamAchs = steamRoot.path("achievements");
             if (!steamAchs.isArray() || steamAchs.isEmpty()) {
-                return rawgJson;
+                return sanitizeAchievementsJson(rawgJson);
             }
 
-            Map<String, JsonNode> steamMapByName = new LinkedHashMap<>();
+            Map<String, JsonNode> steamMapByCleanName = new LinkedHashMap<>();
+            Map<String, JsonNode> steamMapByCanonical = new LinkedHashMap<>();
+            Map<String, JsonNode> steamMapByApiName = new LinkedHashMap<>();
+
             for (JsonNode ach : steamAchs) {
-                String displayName = ach.path("displayName").asText("").trim().toLowerCase();
-                if (!displayName.isEmpty()) {
-                    steamMapByName.put(displayName, ach);
+                String rawDisplayName = ach.path("displayName").asText("");
+                String cleanName = cleanAchievementName(rawDisplayName).toLowerCase(Locale.ROOT);
+                String canon = canonicalKey(rawDisplayName);
+                String apiName = ach.path("name").asText("").trim();
+
+                if (!cleanName.isEmpty()) {
+                    steamMapByCleanName.put(cleanName, ach);
+                }
+                if (!canon.isEmpty()) {
+                    steamMapByCanonical.put(canon, ach);
+                }
+                if (!apiName.isEmpty()) {
+                    steamMapByApiName.put(apiName, ach);
                 }
             }
 
-            // 3. Parse RAWG achievements
+            // 3. Parse RAWG achievements with internal deduplication
             JsonNode rawgRoot = objectMapper.readTree(rawgJson);
             JsonNode rawgResults = rawgRoot.path("results");
             List<Map<String, Object>> combinedResults = new ArrayList<>();
-            Set<String> matchedSteamNames = new HashSet<>();
+            Set<String> matchedSteamIdentifiers = new HashSet<>();
+            Set<String> seenCanons = new HashSet<>();
 
             if (rawgResults.isArray()) {
                 for (JsonNode item : rawgResults) {
-                    Map<String, Object> map = new LinkedHashMap<>();
                     int id = item.path("id").asInt();
-                    String name = item.path("name").asText("");
+                    String rawName = item.path("name").asText("");
+                    String cleanName = cleanAchievementName(rawName);
+                    String canon = canonicalKey(rawName);
+                    String existingSteamApiName = item.path("steamApiName").asText("").trim();
+
+                    // Deduplicate within RAWG results (e.g. from pagination overlaps)
+                    if (canon.isEmpty() || !seenCanons.add(canon)) {
+                        continue;
+                    }
+
                     String description = item.path("description").asText("");
                     String image = item.path("image").asText("");
                     String percent = item.has("percent") ? item.path("percent").asText("0.0") : "0.0";
                     boolean hidden = false;
 
-                    String lookupKey = name.trim().toLowerCase();
-                    JsonNode steamMatch = steamMapByName.get(lookupKey);
+                    // Match against Steam
+                    JsonNode steamMatch = null;
+                    if (!existingSteamApiName.isEmpty()) {
+                        steamMatch = steamMapByApiName.get(existingSteamApiName);
+                    }
+                    if (steamMatch == null) {
+                        steamMatch = steamMapByCleanName.get(cleanName.toLowerCase(Locale.ROOT));
+                    }
+                    if (steamMatch == null) {
+                        steamMatch = steamMapByCanonical.get(canon);
+                    }
+
+                    // If official Steam achievements are present, omit non-Steam achievements (e.g. PlayStation Platinum trophies)
+                    if (steamMatch == null && existingSteamApiName.isEmpty() && !steamAchs.isEmpty()) {
+                        continue;
+                    }
+
                     if (steamMatch != null) {
-                        matchedSteamNames.add(lookupKey);
+                        String steamRawDisplayName = steamMatch.path("displayName").asText("");
+                        matchedSteamIdentifiers.add(cleanAchievementName(steamRawDisplayName).toLowerCase(Locale.ROOT));
+                        matchedSteamIdentifiers.add(canonicalKey(steamRawDisplayName));
+                        if (steamMatch.has("name")) {
+                            matchedSteamIdentifiers.add(steamMatch.path("name").asText("").trim());
+                        }
+
                         hidden = steamMatch.path("hidden").asBoolean(false);
                         // If RAWG percent is 0.0 or missing, take Steam percent
                         if (("0.0".equals(percent) || "0".equals(percent)) && steamMatch.has("percent")) {
@@ -354,56 +414,136 @@ public class SteamClientService {
                         }
                     }
 
+                    Map<String, Object> map = new LinkedHashMap<>();
                     map.put("id", id);
-                    map.put("name", name);
+                    map.put("name", cleanName);
                     map.put("description", description);
                     map.put("image", image);
                     map.put("percent", percent);
                     map.put("hidden", hidden);
                     if (steamMatch != null && steamMatch.has("name")) {
-                        map.put("steamApiName", steamMatch.path("name").asText(""));
+                        map.put("steamApiName", steamMatch.path("name").asText("").trim());
+                    } else if (!existingSteamApiName.isEmpty()) {
+                        map.put("steamApiName", existingSteamApiName);
                     }
                     combinedResults.add(map);
                 }
             }
 
-            // 4. Append all Steam achievements that RAWG omitted (all the hidden / secret storyline achievements!)
+            // 4. Append all Steam achievements that RAWG omitted (hidden / secret storyline achievements)
             int fakeIdCounter = 900000;
             for (JsonNode steamAch : steamAchs) {
-                String displayName = steamAch.path("displayName").asText("");
-                String lookupKey = displayName.trim().toLowerCase();
-                if (!matchedSteamNames.contains(lookupKey)) {
-                    String desc = steamAch.path("description").asText("");
-                    if (desc.isBlank()) {
-                        desc = "Secret storyline achievement.";
-                    }
-                    String icon = steamAch.path("icon").asText("");
-                    String percent = steamAch.path("percent").asText("0.0");
-                    boolean hidden = steamAch.path("hidden").asBoolean(true); // default true for omitted achievements
+                String rawDisplayName = steamAch.path("displayName").asText("");
+                String cleanName = cleanAchievementName(rawDisplayName);
+                String canon = canonicalKey(rawDisplayName);
+                String apiName = steamAch.path("name").asText("").trim();
 
-                    Map<String, Object> map = new LinkedHashMap<>();
-                    map.put("id", fakeIdCounter++);
-                    map.put("name", displayName);
-                    map.put("description", desc);
-                    map.put("image", icon);
-                    map.put("percent", percent);
-                    map.put("hidden", hidden);
-                    if (steamAch.has("name")) {
-                        map.put("steamApiName", steamAch.path("name").asText(""));
-                    }
-                    combinedResults.add(map);
+                // Skip if already matched by name, canonical key, or steam API name
+                if (matchedSteamIdentifiers.contains(cleanName.toLowerCase(Locale.ROOT))
+                        || matchedSteamIdentifiers.contains(canon)
+                        || (!apiName.isEmpty() && matchedSteamIdentifiers.contains(apiName))
+                        || seenCanons.contains(canon)) {
+                    continue;
                 }
+
+                seenCanons.add(canon);
+                if (!apiName.isEmpty()) {
+                    matchedSteamIdentifiers.add(apiName);
+                }
+
+                String desc = steamAch.path("description").asText("");
+                if (desc.isBlank()) {
+                    desc = "Secret storyline achievement.";
+                }
+                String icon = steamAch.path("icon").asText("");
+                String percent = steamAch.path("percent").asText("0.0");
+                boolean hidden = steamAch.path("hidden").asBoolean(true); // default true for omitted achievements
+
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("id", fakeIdCounter++);
+                map.put("name", cleanName);
+                map.put("description", desc);
+                map.put("image", icon);
+                map.put("percent", percent);
+                map.put("hidden", hidden);
+                if (!apiName.isEmpty()) {
+                    map.put("steamApiName", apiName);
+                }
+                combinedResults.add(map);
             }
 
-            Map<String, Object> output = new LinkedHashMap<>();
-            output.put("count", combinedResults.size());
-            output.put("results", combinedResults);
-            return objectMapper.writeValueAsString(output);
+            // 5. Final deduplication pass to ensure 100% unique items
+            return buildDeduplicatedOutput(combinedResults);
 
         } catch (Exception ex) {
             log.error("Failed to enrich achievements with Steam for gameId={}: {}", gameId, ex.getMessage(), ex);
-            return rawgJson;
+            return sanitizeAchievementsJson(rawgJson);
         }
+    }
+
+    /**
+     * Sanitizes and strictly deduplicates an achievements JSON string.
+     */
+    public String sanitizeAchievementsJson(String achievementsJson) {
+        if (achievementsJson == null || achievementsJson.isBlank()) {
+            return "{\"count\":0,\"results\":[]}";
+        }
+        try {
+            JsonNode root = objectMapper.readTree(achievementsJson);
+            JsonNode results = root.path("results");
+            if (!results.isArray()) {
+                return achievementsJson;
+            }
+
+            List<Map<String, Object>> items = new ArrayList<>();
+            for (JsonNode item : results) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("id", item.path("id").asInt());
+                map.put("name", cleanAchievementName(item.path("name").asText("")));
+                map.put("description", item.path("description").asText(""));
+                map.put("image", item.path("image").asText(""));
+                map.put("percent", item.has("percent") ? item.path("percent").asText("0.0") : "0.0");
+                map.put("hidden", item.path("hidden").asBoolean(false));
+                if (item.has("steamApiName")) {
+                    map.put("steamApiName", item.path("steamApiName").asText("").trim());
+                }
+                items.add(map);
+            }
+
+            return buildDeduplicatedOutput(items);
+        } catch (Exception ex) {
+            log.warn("Failed to sanitize achievements JSON: {}", ex.getMessage());
+            return achievementsJson;
+        }
+    }
+
+    private String buildDeduplicatedOutput(List<Map<String, Object>> items) throws Exception {
+        List<Map<String, Object>> deduped = new ArrayList<>();
+        Set<String> seenCanons = new HashSet<>();
+        Set<String> seenApiNames = new HashSet<>();
+
+        for (Map<String, Object> item : items) {
+            String name = cleanAchievementName((String) item.get("name"));
+            String canon = canonicalKey(name);
+            String apiName = (String) item.get("steamApiName");
+
+            if (!canon.isEmpty() && seenCanons.contains(canon)) {
+                continue;
+            }
+            if (apiName != null && !apiName.isEmpty() && seenApiNames.contains(apiName)) {
+                continue;
+            }
+
+            if (!canon.isEmpty()) seenCanons.add(canon);
+            if (apiName != null && !apiName.isEmpty()) seenApiNames.add(apiName);
+            item.put("name", name);
+            deduped.add(item);
+        }
+
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("count", deduped.size());
+        output.put("results", deduped);
+        return objectMapper.writeValueAsString(output);
     }
 
     /**

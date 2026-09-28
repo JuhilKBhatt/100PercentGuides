@@ -32,6 +32,9 @@ interface GuideCreatorModalProps {
   gameId: string;
   gameSlug?: string;
   availableAchievements?: Achievement[];
+  initialAchievement?: Achievement | null;
+  initialGuide?: CollectibleGuide | null;
+  initialTab?: CreatorTab;
   isOpen: boolean;
   onClose: () => void;
   onGuideCreated?: () => void;
@@ -43,6 +46,9 @@ export default function GuideCreatorModal({
   gameId,
   gameSlug = "game",
   availableAchievements = [],
+  initialAchievement = null,
+  initialGuide = null,
+  initialTab = "general",
   isOpen,
   onClose,
   onGuideCreated,
@@ -117,6 +123,57 @@ export default function GuideCreatorModal({
   const [stepX, setStepX] = useState<number>(50.0);
   const [stepY, setStepY] = useState<number>(50.0);
   const [stepImageUrl, setStepImageUrl] = useState("");
+
+  // Sync initial state when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+
+    if (initialGuide) {
+      setTitle(initialGuide.title || "");
+      setSlug(initialGuide.guideSlug || "");
+      setSubtitle(initialGuide.subtitle || "");
+      setAttachedAchievements(initialGuide.relatedAchievements || []);
+      if (initialGuide.maps && initialGuide.maps.length > 0) {
+        setMaps(initialGuide.maps);
+        setActiveMapId(initialGuide.maps[0].id);
+      }
+      if (initialGuide.regions) {
+        const flatItems = initialGuide.regions.flatMap((r) => r.items || []);
+        setSteps(flatItems);
+        setStepNum(flatItems.length + 1);
+      }
+      setJsonText(JSON.stringify(initialGuide, null, 2));
+    } else if (initialAchievement) {
+      setTitle(`${initialAchievement.name} Checklist`);
+      setSlug(`ach-${initialAchievement.id}`);
+      setSubtitle(`Step-by-step checklist to unlock the ${initialAchievement.name} achievement.`);
+      setAttachedAchievements([
+        {
+          id: initialAchievement.id,
+          name: initialAchievement.name,
+          image: initialAchievement.image,
+          description: initialAchievement.description,
+          percent: initialAchievement.percent,
+          hidden: initialAchievement.hidden,
+        },
+      ]);
+      setMaps([{ id: "map-1", name: "Main Map", imageUrl: "" }]);
+      setSteps([]);
+      setStepNum(1);
+    } else {
+      setTitle("");
+      setSlug("");
+      setSubtitle("");
+      setAttachedAchievements([]);
+      setMaps([{ id: "map-1", name: "Main Map", imageUrl: "" }]);
+      setSteps([]);
+      setStepNum(1);
+    }
+  }, [isOpen, initialGuide, initialAchievement, initialTab]);
 
   // Map canvas dragging / interaction state
   const mapCanvasRef = useRef<HTMLDivElement>(null);
@@ -251,6 +308,7 @@ export default function GuideCreatorModal({
       requiredForCompletion: steps.length,
       mapImageUrl: maps[0]?.imageUrl || undefined,
       maps: maps,
+      achievementId: attachedAchievements[0]?.id || undefined,
       relatedAchievements: attachedAchievements,
       regions: regions,
     };

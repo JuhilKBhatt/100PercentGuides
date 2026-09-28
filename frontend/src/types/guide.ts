@@ -52,6 +52,7 @@ export interface CollectibleGuide {
   mapVectors?: MapVectors;
   mapImageUrl?: string;
   maps?: GuideMap[];
+  achievementId?: number | string;
   relatedAchievements?: AttachedAchievement[];
   regions: GuideRegion[];
 }
@@ -64,4 +65,6 @@ export interface GuideMeta {
   updatedAt?: number;
   mapsCount?: number;
   achievementsCount?: number;
+  achievementId?: string | number;
+  achievementIds?: (string | number)[];
 }

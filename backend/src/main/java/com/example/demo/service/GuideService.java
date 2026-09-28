@@ -39,6 +39,11 @@ public class GuideService {
             item.put("payload", AttributeValue.builder().s(payloadJson).build());
             item.put("updatedAt", AttributeValue.builder().n(String.valueOf(now)).build());
 
+            String achId = extractAchievementId(payloadJson);
+            if (achId != null) {
+                item.put("achievementId", AttributeValue.builder().s(achId).build());
+            }
+
             dynamoDbClient.putItem(PutItemRequest.builder()
                     .tableName(DynamoDbConfig.GUIDES_TABLE)
                     .item(item)
@@ -123,6 +128,25 @@ public class GuideService {
                 meta.put("title", item.containsKey("title") ? item.get("title").s() : item.get("guideSlug").s());
                 meta.put("totalCount", item.containsKey("totalCount") ? Integer.parseInt(item.get("totalCount").n()) : 0);
                 meta.put("updatedAt", item.containsKey("updatedAt") ? Long.parseLong(item.get("updatedAt").n()) : 0L);
+
+                if (item.containsKey("achievementId")) {
+                    meta.put("achievementId", item.get("achievementId").s());
+                }
+
+                if (item.containsKey("payload")) {
+                    String payload = item.get("payload").s();
+                    if (!meta.containsKey("achievementId")) {
+                        String payloadAchId = extractAchievementId(payload);
+                        if (payloadAchId != null) {
+                            meta.put("achievementId", payloadAchId);
+                        }
+                    }
+                    List<String> allAchIds = extractAllAchievementIds(payload);
+                    if (!allAchIds.isEmpty()) {
+                        meta.put("achievementIds", allAchIds);
+                    }
+                }
+
                 list.add(meta);
             }
         } catch (Exception ex) {
@@ -151,4 +175,31 @@ public class GuideService {
         }
     }
 
+    private String extractAchievementId(String json) {
+        if (json == null) return null;
+        Matcher m = Pattern.compile("\"achievementId\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);
+        if (m.find()) return m.group(1);
+        Matcher m2 = Pattern.compile("\"relatedAchievements\"\\s*:\\s*\\[[^\\]]*\"id\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);
+        if (m2.find()) return m2.group(1);
+        return null;
     }
+
+    private List<String> extractAllAchievementIds(String json) {
+        List<String> ids = new ArrayList<>();
+        if (json == null) return ids;
+        Matcher m1 = Pattern.compile("\"achievementId\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);
+        while (m1.find()) {
+            String id = m1.group(1);
+            if (!ids.contains(id)) ids.add(id);
+        }
+        Matcher relSection = Pattern.compile("\"relatedAchievements\"\\s*:\\s*\\[([^\\]]*)\\]").matcher(json);
+        if (relSection.find()) {
+            Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"?(\\d+)\"?").matcher(relSection.group(1));
+            while (m2.find()) {
+                String id = m2.group(1);
+                if (!ids.contains(id)) ids.add(id);
+            }
+        }
+        return ids;
+    }
+}

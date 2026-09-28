@@ -69,17 +69,27 @@ public class GameController {
     }
 
     @GetMapping(value = "/{id}/achievements", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> getAchievements(@PathVariable("id") String id) {
+    public ResponseEntity<String> getAchievements(
+            @PathVariable("id") String id,
+            @RequestParam(value = "refresh", required = false, defaultValue = "false") boolean refresh) {
         String cacheKey = "game:achievements:" + id;
+
+        if (refresh) {
+            gameCacheService.evict(cacheKey);
+        }
+
         String data = gameCacheService.getOrFetch(cacheKey, TTL_24_HOURS, () -> {
             String rawgJson = rawgClientService.getGameAchievements(id);
             return steamClientService.enrichAchievementsWithSteam(id, rawgJson);
         });
 
-        // If previously cached without hidden attributes, re-enrich and update cache
-        if (!data.contains("\"hidden\"")) {
-            data = steamClientService.enrichAchievementsWithSteam(id, data);
-            gameCacheService.put(cacheKey, data, TTL_24_HOURS);
+        // Ensure cached data is strictly sanitized and deduplicated
+        String sanitized = steamClientService.sanitizeAchievementsJson(data);
+
+        // If data was dirty/had duplicates, or missing hidden flag, update cache with clean version
+        if (!sanitized.equals(data) || !data.contains("\"hidden\"")) {
+            gameCacheService.put(cacheKey, sanitized, TTL_24_HOURS);
+            data = sanitized;
         }
 
         return ResponseEntity.ok(data);
