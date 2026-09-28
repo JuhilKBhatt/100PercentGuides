@@ -18,9 +18,6 @@ export default function BuyButton({ gameName, buyUrl, className = "" }: BuyButto
           <h3 className="text-lg font-bold font-outfit text-white">
             Ready to 100% {gameName}?
           </h3>
-          <p className="text-sm text-zinc-400">
-            Get the game at the best available price & start earning achievements.
-          </p>
         </div>
       </div>
       <a

@@ -123,27 +123,6 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
                   {completionTime}
                 </span>
               </div>
-
-              {game.steamAppId && (
-                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-zinc-900">
-                  <span className="text-zinc-400 flex items-center gap-2 text-xs">
-                    <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.029 4.524 4.524s-2.03 4.524-4.524 4.524h-.105l-4.076 2.911c0 .052.005.105.005.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.733L.438 15.05C1.562 20.166 6.342 24 11.979 24c6.627 0 12-5.373 12-12S18.605 0 11.979 0z" />
-                    </svg>
-                    Steam Game ID
-                  </span>
-                  <a
-                    href={game.steamUrl || `https://store.steampowered.com/app/${game.steamAppId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-mono text-xs font-bold text-blue-400 hover:text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
-                    title="View Steam App ID (Steam Login Tracking Ready)"
-                  >
-                    <span>{game.steamAppId}</span>
-                    <span className="text-[10px] text-zinc-500 font-sans">↗</span>
-                  </a>
-                </div>
-              )}
             </div>
           </div>
         </div>
