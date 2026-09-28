@@ -45,22 +45,6 @@ export default function AchievementsList({ achievements }: AchievementsListProps
             <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block"></span>
             Achievements ({achievements.length})
           </h2>
-
-          {/* Rarity Legend */}
-          <div className="flex items-center gap-4 text-xs font-mono text-zinc-400 bg-zinc-950/80 px-3.5 py-1.5 rounded-full border border-zinc-900 w-fit">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"></span>
-              Gold ≤5%
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-slate-300 shadow-[0_0_8px_rgba(203,213,225,0.4)]"></span>
-              Silver ≤50%
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#cd7f32]"></span>
-              Bronze &gt;50%
-            </span>
-          </div>
         </div>
 
         {/* Filter Tabs & Search Bar */}
@@ -112,31 +96,6 @@ export default function AchievementsList({ achievements }: AchievementsListProps
                 className="w-full bg-zinc-950 border border-zinc-900 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500/60 transition-colors"
               />
             </div>
-
-            {/* Spoiler Toggle for Hidden Achievements */}
-            {hiddenCount > 0 && (
-              <button
-                onClick={() => setRevealSpoilers((prev) => !prev)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
-                  revealSpoilers
-                    ? "bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
-                    : "bg-zinc-950 text-zinc-400 border-zinc-900 hover:text-white"
-                }`}
-                title="Toggle hidden achievement spoiler visibility"
-              >
-                {revealSpoilers ? (
-                  <>
-                    <Eye className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Spoilers Visible</span>
-                  </>
-                ) : (
-                  <>
-                    <EyeOff className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>Spoilers Masked</span>
-                  </>
-                )}
-              </button>
-            )}
           </div>
         </div>
       </div>
