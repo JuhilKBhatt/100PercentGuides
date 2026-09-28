@@ -155,21 +155,13 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
 
         {/* Ads Section */}
         <AdCarousel />
-
-
-        {/* About Section */}
-        <div className="p-6 bg-black border border-zinc-900 rounded-2xl shadow-xl prose prose-invert max-w-none text-zinc-300">
-          <h3 className="text-2xl font-bold font-outfit mb-4 bg-clip-text text-transparent bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400">
-            About {game.name}
-          </h3>
-          <div dangerouslySetInnerHTML={{ __html: sanitizedDescription }}></div>
-        </div>
         
         {/* Interactive Collectible Guides Loaded from Database */}
         <GuidesListSection 
           gameId={id} 
           gameSlug={game.name.toLowerCase().replace(/\s+/g, "-")} 
           initialGuides={initialGuides} 
+          achievements={achievements}
         />
 
         {/* Achievements Section with Hidden / Secret Achievement Support */}

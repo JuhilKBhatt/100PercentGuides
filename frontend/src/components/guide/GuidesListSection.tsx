@@ -7,16 +7,20 @@ import { listGameGuides, deleteCollectibleGuide } from "@/lib/api";
 import GuideCreatorModal from "./GuideCreatorModal";
 import { MapPin, Plus, Trash2, ExternalLink, Compass, Database } from "lucide-react";
 
+import { Achievement } from "@/types";
+
 interface GuidesListSectionProps {
   gameId: string;
   gameSlug?: string;
   initialGuides?: GuideMeta[];
+  achievements?: Achievement[];
 }
 
 export default function GuidesListSection({
   gameId,
   gameSlug = "game",
   initialGuides = [],
+  achievements = [],
 }: GuidesListSectionProps) {
   const [guides, setGuides] = useState<GuideMeta[]>(initialGuides);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -123,6 +127,7 @@ export default function GuidesListSection({
       <GuideCreatorModal
         gameId={gameId}
         gameSlug={gameSlug}
+        availableAchievements={achievements}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onGuideCreated={fetchGuides}

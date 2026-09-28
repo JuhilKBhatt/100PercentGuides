@@ -11,9 +11,9 @@ A high-performance, modern mobile-first video game achievement and 100% completi
 
 ## Features
 - **Database-Driven Collectible Guides & Map Framework:**
-  - Guides, steps, and map coordinates stored directly in AWS DynamoDB (`GameGuides` table) with Redis L1 caching.
-  - Manual creation via In-App Guide Creator Modal (Visual Form + JSON import/export) or Python CLI seeder (`scripts/seed_guide.py`).
-  - Standalone guide routes (`/game/[id]/[guideSlug]`) with responsive split-screen vector map and step-by-step checklist.
+  - Guides, steps, multi-map definitions, and pin coordinates stored dynamically in AWS DynamoDB (`GameGuides` table) with Redis L1 caching.
+  - In-App Guide Creator with multi-map image imports, real-time drag-and-drop / click-to-pin canvas (no coordinate guessing), achievement attachment, and integrated step-by-step checklist maker.
+  - Standalone guide routes (`/game/[id]/[guideSlug]`) with multi-map switching, completable achievement badges, interactive vector/raster maps, and live step progress tracking.
 - **Interactive Vector Game Maps & Step-by-Step Guides:** Standalone interactive guide pages with high-performance vector SVG maps, numbered location pins, and region-grouped step checklists.
 - **Dynamic 100% Game Completion Guides:** Detailed breakdown of game achievements and playtime.
 - **Steam App ID & Live Tracking Support:** Dynamic resolution of Steam App IDs from RAWG and Steam Store Search with rate-limit resilient multi-tiered caching (Redis L1 + DynamoDB L2) for official Steam achievements and player progress tracking.

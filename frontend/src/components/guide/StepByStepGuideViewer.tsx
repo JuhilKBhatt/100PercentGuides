@@ -29,6 +29,7 @@ export default function StepByStepGuideViewer({ guide, gameName }: StepByStepGui
   const [selectedRegion, setSelectedRegion] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<"all" | "todo" | "done">("all");
+  const [activeMapId, setActiveMapId] = useState<string>(guide.maps?.[0]?.id || "map-1");
 
   // Flatten all items across regions for easy lookups
   const allItems = useMemo(() => {
@@ -190,6 +191,10 @@ export default function StepByStepGuideViewer({ guide, gameName }: StepByStepGui
         <VectorGameMap
           viewBox={guide.mapViewBox}
           vectors={guide.mapVectors}
+          imageUrl={guide.mapImageUrl}
+          maps={guide.maps}
+          activeMapId={activeMapId}
+          onSelectMap={setActiveMapId}
           items={allItems}
           checkedItems={checkedItems}
           selectedItemId={selectedItemId}

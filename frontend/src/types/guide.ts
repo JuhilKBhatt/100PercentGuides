@@ -1,9 +1,19 @@
+export interface GuideMap {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  viewBox?: string;
+  vectors?: MapVectors;
+}
+
 export interface CollectibleStepItem {
   id: number;
   name: string;
   region: string;
   locationText: string;
   details?: string;
+  imageUrl?: string;
+  mapId?: string;
   x: number;
   y: number;
 }
@@ -21,6 +31,15 @@ export interface MapVectors {
   river?: string;
 }
 
+export interface AttachedAchievement {
+  id: number;
+  name: string;
+  image?: string;
+  percent?: string;
+  hidden?: boolean;
+  description?: string;
+}
+
 export interface CollectibleGuide {
   gameId: string;
   gameSlug: string;
@@ -29,8 +48,11 @@ export interface CollectibleGuide {
   subtitle?: string;
   totalCount: number;
   requiredForCompletion: number;
-  mapViewBox: string;
+  mapViewBox?: string;
   mapVectors?: MapVectors;
+  mapImageUrl?: string;
+  maps?: GuideMap[];
+  relatedAchievements?: AttachedAchievement[];
   regions: GuideRegion[];
 }
 
@@ -40,4 +62,6 @@ export interface GuideMeta {
   title: string;
   totalCount: number;
   updatedAt?: number;
+  mapsCount?: number;
+  achievementsCount?: number;
 }
