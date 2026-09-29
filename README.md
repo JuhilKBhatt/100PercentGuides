@@ -47,6 +47,11 @@ A high-performance, modern mobile-first video game achievement and 100% completi
   - Powered by a **Multi-Model AI Pool** (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-flash-lite-latest`, `gemma-4-31b-it`) utilizing independent quota buckets to multiply throughput from 15 RPM to ~45+ RPM with zero-button page-load generation and automatic failover.
   - Bulk CLI script `scripts/seed_game_ai.py` automates whole games with strict in-game milestone verification and automatic 4.2-second rate-limit pauses.
   - Fully automated zero-button page-load AI generation: loading any game page automatically begins generating verified checklists for unguided achievements in the background at 14 RPM safe speed, showing live *"Generating checklist... Please wait"* states and immediately transitioning into interactive checklists.
+- **Comprehensive Strategic SEO & Rich Data Architecture:**
+  - Dynamic `generateMetadata` generating keyword-rich titles, descriptions, canonical URLs, and OpenGraph cards.
+  - Native automated `/robots.txt` and dynamic `/sitemap.xml` indexed via Next.js metadata routes.
+  - Schema.org JSON-LD structured data: `WebSite`, `Organization`, `VideoGame`, `BreadcrumbList`, and `HowTo` for Google Rich Snippets & AI Overviews.
+  - Complete strategy documentation: `SEO-STRATEGY.md`, `COMPETITOR-ANALYSIS.md`, `CONTENT-CALENDAR.md`, `IMPLEMENTATION-ROADMAP.md`, `SITE-STRUCTURE.md`.
 - **Multi-tiered 24-Hour Cache:** Redis in-memory L1 cache and AWS DynamoDB persistent L2 cache.
 
 ## Setup Instructions

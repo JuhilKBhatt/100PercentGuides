@@ -1,14 +1,57 @@
 import React from "react";
+import type { Metadata } from "next";
 import AdCarousel from "@/components/AdCarousel";
 import BuyButton from "@/components/BuyButton";
+import JsonLd from "@/components/seo/JsonLd";
 import { getGameDetails, getGameAchievements, listGameGuides } from "@/lib/api";
 import AchievementsList from "@/components/achievement/AchievementsList";
 import { cleanGameDescription } from "@/utils/format";
 import { getAffiliateBuyUrl } from "@/utils/affiliate";
-import { getAchievementTierInfo } from "@/utils/achievement";
 import { Calendar, Building2, Gamepad2, Star, Clock } from "lucide-react";
 
-export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
+interface Props {
+  params: Promise<{ id: string }>;
+}
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://100percentguides.com";
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+  const game = await getGameDetails(id);
+
+  if (!game) {
+    return {
+      title: "Game Not Found",
+      description: "The requested game achievement guide could not be found.",
+    };
+  }
+
+  const title = `${game.name} 100% Achievement Guide & Roadmap`;
+  const description = `Complete 100% achievement guide, interactive maps, and trophy roadmap for ${game.name}. Track live Steam unlocks and step-by-step checklists.`;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: `${siteUrl}/game/${id}`,
+    },
+    openGraph: {
+      title,
+      description,
+      url: `${siteUrl}/game/${id}`,
+      type: "website",
+      images: game.background_image ? [{ url: game.background_image }] : [],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: game.background_image ? [game.background_image] : [],
+    },
+  };
+}
+
+export default async function GamePage({ params }: Props) {
   const { id } = await params;
   const game = await getGameDetails(id);
   const achievements = await getGameAchievements(id);
@@ -29,14 +72,65 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
   const sanitizedDescription = cleanGameDescription(game.description);
   const affiliateBuyUrl = getAffiliateBuyUrl(game.name);
 
+  // Schema.org Structured Data
+  const gameSchema = {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    name: game.name,
+    description: sanitizedDescription.slice(0, 300),
+    image: game.background_image,
+    operatingSystem: "Windows, PlayStation, Xbox",
+    applicationCategory: "Game",
+    genre: game.genres?.map((g) => g.name),
+    author: {
+      "@type": "Organization",
+      name: developerNames || "Game Developer",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: publisherNames || "Game Publisher",
+    },
+    aggregateRating: game.rating
+      ? {
+          "@type": "AggregateRating",
+          ratingValue: game.rating,
+          bestRating: 5,
+          ratingCount: 100,
+        }
+      : undefined,
+  };
+
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: game.name,
+        item: `${siteUrl}/game/${id}`,
+      },
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-black text-white pb-24">
+      {/* Schema.org Structured Data */}
+      <JsonLd data={gameSchema} />
+      <JsonLd data={breadcrumbSchema} />
+
       {/* Hero Banner with Background Image */}
       <div 
         className="relative w-full min-h-[460px] md:min-h-[500px] bg-cover bg-center flex items-end overflow-hidden" 
         style={{ backgroundImage: `url(${game.background_image})` }}
       >
-        {/* Solid black gradient overlays to completely eliminate any grey haze */}
+        {/* Solid black gradient overlays */}
         <div className="absolute inset-0 bg-black/60"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent"></div>
         
