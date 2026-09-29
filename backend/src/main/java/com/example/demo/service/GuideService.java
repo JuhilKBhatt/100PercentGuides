@@ -43,6 +43,8 @@ public class GuideService {
             if (achId != null) {
                 item.put("achievementId", AttributeValue.builder().s(achId).build());
             }
+            boolean hasMap = checkHasMap(payloadJson);
+            item.put("hasMap", AttributeValue.builder().s(String.valueOf(hasMap)).build());
 
             dynamoDbClient.putItem(PutItemRequest.builder()
                     .tableName(DynamoDbConfig.GUIDES_TABLE)
@@ -132,6 +134,13 @@ public class GuideService {
                 if (item.containsKey("achievementId")) {
                     meta.put("achievementId", item.get("achievementId").s());
                 }
+                boolean hasMap = false;
+                if (item.containsKey("hasMap")) {
+                    hasMap = Boolean.parseBoolean(item.get("hasMap").s());
+                } else if (item.containsKey("payload")) {
+                    hasMap = checkHasMap(item.get("payload").s());
+                }
+                meta.put("hasMap", hasMap);
 
                 if (item.containsKey("payload")) {
                     String payload = item.get("payload").s();
@@ -175,6 +184,16 @@ public class GuideService {
         }
     }
 
+    private boolean checkHasMap(String json) {
+        if (json == null || json.isBlank()) return false;
+        Matcher m1 = Pattern.compile("\"mapImageUrl\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        if (m1.find() && !m1.group(1).trim().isEmpty()) return true;
+        Matcher m2 = Pattern.compile("\"imageUrl\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        if (m2.find() && !m2.group(1).trim().isEmpty()) return true;
+        Matcher m3 = Pattern.compile("\"land\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        if (m3.find() && !m3.group(1).trim().isEmpty()) return true;
+        return false;
+    }
     private String extractAchievementId(String json) {
         if (json == null) return null;
         Matcher m = Pattern.compile("\"achievementId\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);

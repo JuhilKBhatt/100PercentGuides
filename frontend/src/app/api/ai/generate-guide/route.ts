@@ -1,0 +1,204 @@
+import { NextRequest, NextResponse } from "next/server";
+
+// Multi-Model Pool (Triples RPM from 15 to 45 across independent quotas)
+const MODEL_POOL = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemma-4-31b-it",
+];
+
+let roundRobinCounter = 0;
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { gameId, gameTitle, achievementId, achievementName, achievementDescription, preferredModel } = body;
+
+    if (!gameId || !achievementId || !achievementName) {
+      return NextResponse.json(
+        { error: "gameId, achievementId, and achievementName are required." },
+        { status: 400 }
+      );
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY is not configured in environment." },
+        { status: 500 }
+      );
+    }
+
+    const prompt = `You are a master video game completionist and verified 100% achievement guide author.
+Create an accurate, authentic step-by-step completion checklist for this video game achievement:
+
+Game: ${gameTitle || "Game " + gameId}
+Achievement: ${achievementName}
+Official Description: ${achievementDescription || "Unlock the achievement"}
+
+REQUIREMENTS FOR ACCURACY:
+1. Verify how this achievement is ACTUALLY unlocked in the game. Do not guess or hallucinate.
+2. If it is story-related or unmissable, detail the exact mission chapter, prerequisites, and milestone triggers.
+3. If it is a collectible or multi-stage task, list the key locations, actionable instructions, and in-game landmarks.
+4. If it has missable elements or difficulty requirements, state them clearly in the details/hints.
+5. Provide realistic normalized X/Y coordinates (between 5 and 95) for the map pins.
+
+OUTPUT FORMAT:
+Return ONLY valid JSON matching this exact structure:
+{
+  "title": "${achievementName} Checklist",
+  "subtitle": "Accurate step-by-step roadmap to unlock ${achievementName}",
+  "regions": [
+    {
+      "id": "region-slug",
+      "name": "Region Name",
+      "items": [
+        {
+          "id": 1,
+          "name": "Step Title",
+          "region": "Region Name",
+          "locationText": "Specific in-game location or milestone",
+          "details": "Detailed gameplay instructions, weapons, or mission advice",
+          "x": 50.0,
+          "y": 50.0
+        }
+      ]
+    }
+  ]
+}
+Do NOT wrap the response in markdown blocks. Output pure JSON only.`;
+
+    // Multi-Model Pool Execution with Automatic Fallback
+    const startIndex = preferredModel 
+      ? MODEL_POOL.indexOf(preferredModel) !== -1 ? MODEL_POOL.indexOf(preferredModel) : 0
+      : (roundRobinCounter++) % MODEL_POOL.length;
+
+    let successfulRawText = "";
+    let usedModel = "";
+    let lastError = "";
+
+    for (let i = 0; i < MODEL_POOL.length; i++) {
+      const modelCandidate = MODEL_POOL[(startIndex + i) % MODEL_POOL.length];
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelCandidate}:generateContent?key=${apiKey}`;
+
+      try {
+        const geminiRes = await fetch(geminiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+            },
+          }),
+        });
+
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json();
+          const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText && rawText.trim().length > 0) {
+            successfulRawText = rawText;
+            usedModel = modelCandidate;
+            break;
+          }
+        } else {
+          const errText = await geminiRes.text();
+          console.warn(`[Multi-Model Router] Model ${modelCandidate} failed (${geminiRes.status}): ${errText.slice(0, 100)}. Falling back to next model...`);
+          lastError = `${modelCandidate} (${geminiRes.status})`;
+        }
+      } catch (err: any) {
+        console.warn(`[Multi-Model Router] Network error with ${modelCandidate}:`, err.message);
+        lastError = err.message;
+      }
+    }
+
+    if (!successfulRawText) {
+      return NextResponse.json(
+        { error: `All models in the pool were exhausted or rate-limited. Last error: ${lastError}` },
+        { status: 429 }
+      );
+    }
+
+    let parsedGuide: any;
+    try {
+      parsedGuide = JSON.parse(successfulRawText);
+    } catch (e) {
+      return NextResponse.json(
+        { error: "Failed to parse JSON response from AI model pool." },
+        { status: 500 }
+      );
+    }
+
+    // Standardize schema
+    const guideSlug = `ach-${achievementId}`;
+    let totalCount = 0;
+    let itemIdCounter = 1;
+    const cleanRegions = (parsedGuide.regions || []).map((reg: any) => {
+      const regId = reg.id || (reg.name || "General").toLowerCase().replace(/\s+/g, "-");
+      const regName = reg.name || "General";
+      const items = (reg.items || []).map((it: any) => {
+        const itemObj = {
+          id: itemIdCounter++,
+          name: it.name || `Step ${itemIdCounter}`,
+          region: it.region || regName,
+          locationText: it.locationText || "See details",
+          details: it.details || "",
+          x: typeof it.x === "number" ? it.x : 50.0,
+          y: typeof it.y === "number" ? it.y : 50.0,
+        };
+        totalCount++;
+        return itemObj;
+      });
+
+      return {
+        id: regId,
+        name: regName,
+        itemCount: items.length,
+        items,
+      };
+    });
+
+    const fullGuide = {
+      gameId: String(gameId),
+      gameSlug: (gameTitle || "game").toLowerCase().replace(/\s+/g, "-"),
+      guideSlug,
+      title: parsedGuide.title || `${achievementName} Checklist`,
+      subtitle: parsedGuide.subtitle || achievementDescription || "",
+      totalCount: totalCount > 0 ? totalCount : 1,
+      requiredForCompletion: totalCount > 0 ? totalCount : 1,
+      achievementId: String(achievementId),
+      generatedByModel: usedModel,
+      relatedAchievements: [
+        {
+          id: Number(achievementId),
+          name: achievementName,
+          description: achievementDescription || "",
+        },
+      ],
+      maps: [
+        {
+          id: "main-map",
+          name: `${gameTitle || "Game"} Map`,
+        },
+      ],
+      regions: cleanRegions,
+    };
+
+    // Save directly to the Spring Boot backend -> DynamoDB & Redis
+    const backendUrl = process.env.BACKEND_URL || "http://backend:8080";
+    await fetch(`${backendUrl}/api/games/${gameId}/guides`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fullGuide),
+    });
+
+    return NextResponse.json({ ...fullGuide, modelUsed: usedModel });
+  } catch (error: any) {
+    console.error("[generate-guide route error]", error);
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

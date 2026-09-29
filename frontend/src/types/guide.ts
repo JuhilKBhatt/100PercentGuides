@@ -64,6 +64,7 @@ export interface GuideMeta {
   totalCount: number;
   updatedAt?: number;
   mapsCount?: number;
+  hasMap?: boolean;
   achievementsCount?: number;
   achievementId?: string | number;
   achievementIds?: (string | number)[];

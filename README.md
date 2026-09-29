@@ -10,12 +10,17 @@ A high-performance, modern mobile-first video game achievement and 100% completi
 - **Cache:** Redis
 
 ## Features
-- **Per-Achievement Step-by-Step Checklists & Interactive Map Drawers:**
+- **Per-Achievement Step-by-Step Checklists & Conditional Map UI:**
+  - Clean separation: If an achievement checklist has no map image or vectors, the map container, controls, and pin badges are automatically hidden, presenting a focused step-by-step checklist.
   - Checklists and interactive maps live directly under their respective achievements with dedicated slide-over drawers / full modals.
   - Direct '+ Add Checklist' and 'Edit Checklist' actions on each achievement card pre-linked to that achievement.
   - Dedicated slide-over drawer featuring step-by-step instructions, interactive multi-layer raster or vector SVG maps, numbered location pins, screenshots, hints, and local progress tracking.
   - Bulk JSON import in the browser UI and bulk seeding CLI script (`python3 scripts/seed_guide.py --dir <directory>`).
   - DynamoDB persistence (`GameGuides` table) and multi-tier Redis caching for all checklist steps and location pins.
+- **Interactive Global Search with Dynamic Typing & Navigation Loading Animations:**
+  - **Debounced Live Typeahead:** Search games with 350ms debouncing, in-memory client caching, and AbortController race-condition cancellation.
+  - **Typing Shimmer & Scanning Laser Bar:** Animated input glow, running laser progress line along the bottom border of the input container, and multi-row skeleton shimmer preview in the dropdown while querying the database.
+  - **Result-Click Navigation Animations:** Immediate visual feedback when selecting a game—active glowing card with thumbnail spinner, sweeping top-of-screen animated laser progress beam, and a floating frosted status pill indicating roadmap preparation while Next.js routes to the game page.
 - **Dynamic 100% Game Completion Guides:** Detailed breakdown of game achievements and playtime.
 - **Steam Login & Live Achievement Auto-Checking:**
   - Official Valve OpenID 2.0 authentication and manual Steam ID / vanity URL linking.
@@ -38,6 +43,10 @@ A high-performance, modern mobile-first video game achievement and 100% completi
   - Strict **User-Action-Only** policy (zero autoplay/automated rotation timers) preventing AdSense automated refresh penalties.
   - Full **Begin-to-Render Standard** adherence (2027 global standard): Dual-gated activation (`IntersectionObserver` at >=50% viewport visibility + user-selected active slide check) ensures impressions are only counted when ads finish loading and visually render.
   - Zero Cumulative Layout Shift (CLS) with fixed reserved dimensions (`728x90`).
+- **AI Auto-Pilot Seeder & Guide Generator (Option 3):**
+  - Powered by a **Multi-Model AI Pool** (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-flash-lite-latest`, `gemma-4-31b-it`) utilizing independent quota buckets to multiply throughput from 15 RPM to ~45+ RPM with zero-button page-load generation and automatic failover.
+  - Bulk CLI script `scripts/seed_game_ai.py` automates whole games with strict in-game milestone verification and automatic 4.2-second rate-limit pauses.
+  - Fully automated zero-button page-load AI generation: loading any game page automatically begins generating verified checklists for unguided achievements in the background at 14 RPM safe speed, showing live *"Generating checklist... Please wait"* states and immediately transitioning into interactive checklists.
 - **Multi-tiered 24-Hour Cache:** Redis in-memory L1 cache and AWS DynamoDB persistent L2 cache.
 
 ## Setup Instructions

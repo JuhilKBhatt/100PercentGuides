@@ -36,6 +36,14 @@ export default function StepByStepGuideViewer({ guide, gameName }: StepByStepGui
     return guide.regions.flatMap((r) => r.items);
   }, [guide.regions]);
 
+  const hasMap = useMemo(() => {
+    if (!guide) return false;
+    const hasDirectImage = Boolean(guide.mapImageUrl && guide.mapImageUrl.trim().length > 0);
+    const hasMapsWithImage = Boolean(guide.maps && guide.maps.some((m) => m.imageUrl && m.imageUrl.trim().length > 0));
+    const hasVectors = Boolean(guide.mapVectors && (guide.mapVectors.land || guide.mapVectors.water || guide.mapVectors.river));
+    return hasDirectImage || hasMapsWithImage || hasVectors;
+  }, [guide]);
+
   // 1. Initial load from localStorage (synced with parent checklist)
   useEffect(() => {
     const storageKey = `100pg_guide_${guide.gameId}_${guide.guideSlug}`;
@@ -178,29 +186,31 @@ export default function StepByStepGuideViewer({ guide, gameName }: StepByStepGui
         </div>
       </div>
 
-      {/* Interactive Vector Game Map */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold font-outfit text-white flex items-center gap-2">
-            <MapPin size={20} className="text-orange-400" />
-            <span>Interactive Locations Map</span>
-          </h2>
-          <span className="text-xs text-zinc-400">Click any pin to highlight location details</span>
-        </div>
+      {/* Interactive Vector Game Map (only if guide has map or image) */}
+      {hasMap && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold font-outfit text-white flex items-center gap-2">
+              <MapPin size={20} className="text-orange-400" />
+              <span>Interactive Locations Map</span>
+            </h2>
+            <span className="text-xs text-zinc-400">Click any pin to highlight location details</span>
+          </div>
 
-        <VectorGameMap
-          viewBox={guide.mapViewBox}
-          vectors={guide.mapVectors}
-          imageUrl={guide.mapImageUrl}
-          maps={guide.maps}
-          activeMapId={activeMapId}
-          onSelectMap={setActiveMapId}
-          items={allItems}
-          checkedItems={checkedItems}
-          selectedItemId={selectedItemId}
-          onSelectPin={handleSelectPin}
-        />
-      </div>
+          <VectorGameMap
+            viewBox={guide.mapViewBox}
+            vectors={guide.mapVectors}
+            imageUrl={guide.mapImageUrl}
+            maps={guide.maps}
+            activeMapId={activeMapId}
+            onSelectMap={setActiveMapId}
+            items={allItems}
+            checkedItems={checkedItems}
+            selectedItemId={selectedItemId}
+            onSelectPin={handleSelectPin}
+          />
+        </div>
+      )}
 
       {/* Step-by-Step Checklist Controls */}
       <div className="space-y-4">
@@ -352,17 +362,19 @@ export default function StepByStepGuideViewer({ guide, gameName }: StepByStepGui
 
                     {/* Actions: View on Map & Mark Found Checkbox */}
                     <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-                      <button
-                        onClick={() => setSelectedItemId(item.id)}
-                        className={`text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all ${
-                          isSelected
-                            ? "bg-orange-500 text-black font-bold border-orange-500"
-                            : "bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700"
-                        }`}
-                      >
-                        <MapPin size={13} />
-                        <span>Map Pin</span>
-                      </button>
+                      {hasMap && (
+                        <button
+                          onClick={() => setSelectedItemId(item.id)}
+                          className={`text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all ${
+                            isSelected
+                              ? "bg-orange-500 text-black font-bold border-orange-500"
+                              : "bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700"
+                          }`}
+                        >
+                          <MapPin size={13} />
+                          <span>Map Pin</span>
+                        </button>
+                      )}
 
                       <button
                         onClick={() => toggleCheck(item.id)}

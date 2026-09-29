@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Achievement, GuideMeta, CollectibleGuide } from "@/types";
 import { getAchievementTierInfo } from "@/utils/achievement";
 import { formatUnlockTime } from "@/utils/format";
@@ -27,6 +27,7 @@ import {
   Edit2,
   Code,
   FileCode,
+  Loader2,
 } from "lucide-react";
 
 interface AchievementsListProps {
@@ -108,6 +109,14 @@ export default function AchievementsList({
   const [creatorAchievement, setCreatorAchievement] = useState<Achievement | null>(null);
   const [creatorGuide, setCreatorGuide] = useState<CollectibleGuide | null>(null);
   const [creatorTab, setCreatorTab] = useState<"general" | "builder" | "json">("general");
+
+  // Automated AI Generation States (AI Pool Flash Lite)
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+  const [currentGeneratingName, setCurrentGeneratingName] = useState<string | null>(null);
+  const [autoGenProgress, setAutoGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const autoGenStartedRef = useRef(false);
+
+
 
   // Fetch guides from API
   const fetchGuides = useCallback(async () => {
@@ -196,6 +205,55 @@ export default function AchievementsList({
   useEffect(() => {
     refreshChecklistProgress();
   }, [refreshChecklistProgress]);
+
+  // Automatically start generating when user loads the page if any achievement lacks a guide
+  useEffect(() => {
+    if (!achievements.length || autoGenStartedRef.current) return;
+
+    const unguided = achievements.filter((a) => !achievementGuideMap.has(a.id));
+    if (unguided.length === 0) return;
+
+    autoGenStartedRef.current = true;
+    setIsAutoGenerating(true);
+    setAutoGenProgress({ done: 0, total: unguided.length });
+
+    const runAutoGenerator = async () => {
+      for (let i = 0; i < unguided.length; i++) {
+        const targetAch = unguided[i];
+        setCurrentGeneratingName(targetAch.name);
+        setAutoGenProgress({ done: i, total: unguided.length });
+
+        try {
+          await fetch("/api/ai/generate-guide", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              gameId,
+              gameTitle: gameName,
+              achievementId: targetAch.id,
+              achievementName: targetAch.name,
+              achievementDescription: targetAch.description,
+            }),
+          });
+          await fetchGuides();
+          refreshChecklistProgress();
+        } catch (e) {
+          console.warn("[Auto-Gen Notice]", targetAch.name, e);
+        }
+
+        // Multi-Model Pool safe delay (1.5 seconds across rotating model quotas)
+        if (i < unguided.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+
+      setIsAutoGenerating(false);
+      setCurrentGeneratingName(null);
+      setAutoGenProgress(null);
+    };
+
+    runAutoGenerator();
+  }, [achievements, achievementGuideMap, gameId, gameName, fetchGuides, refreshChecklistProgress]);
 
   // Open Drawer to view checklist
   const handleOpenDrawer = (ach: Achievement) => {
@@ -562,18 +620,38 @@ export default function AchievementsList({
             Achievements & Checklists ({achievements.length})
           </h2>
 
-          {/* Bulk Import / Create Action Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleOpenJsonImport}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
-              title="Bulk import or paste guide JSON"
-            >
-              <FileCode className="w-3.5 h-3.5 text-orange-400" />
-              <span>Import Checklist JSON</span>
-            </button>
-          </div>
+          {/* Live Automatic AI Status Indicator (No manual buttons) */}
+          {isAutoGenerating && autoGenProgress && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-orange-500/10 border border-orange-500/30 text-xs font-mono text-orange-400 animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
+              <span>Generating checklists ({autoGenProgress.done + 1}/{autoGenProgress.total})... Please wait</span>
+            </div>
+          )}
         </div>
+
+        {/* Automatic AI Seeding Status Banner */}
+        {isAutoGenerating && autoGenProgress && currentGeneratingName && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 via-amber-500/5 to-transparent border border-orange-500/30 flex items-center justify-between gap-4 animate-in fade-in duration-200">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center shrink-0">
+                <Sparkles className="w-5 h-5 text-orange-400 animate-spin" style={{ animationDuration: "3s" }} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-outfit font-bold text-white text-sm">
+                    Auto-Generating Verified Checklists
+                  </h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                    Multi-Model Pool (AI Pool & 3.1) &bull; ~45 RPM Throughput
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-0.5 truncate">
+                  Generating verified checklist for: <strong className="text-white">&ldquo;{currentGeneratingName}&rdquo;</strong> ({autoGenProgress.done + 1} of {autoGenProgress.total})... Please wait.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filter Tabs & Search Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
@@ -803,7 +881,7 @@ export default function AchievementsList({
                       >
                         <div className="flex items-center gap-2">
                           <CheckSquare className="w-4 h-4 text-orange-400 group-hover/btn:scale-110 transition-transform" />
-                          <span>View Checklist & Map</span>
+                          <span>{attachedGuide.hasMap ? "View Checklist & Map" : "View Checklist"}</span>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -822,16 +900,21 @@ export default function AchievementsList({
                       </button>
                     </div>
                   ) : (
-                    /* No Checklist Yet */
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-[11px] text-zinc-600 italic">No checklist attached</span>
-                      <button
-                        onClick={() => handleAddChecklist(ach)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-950 hover:bg-zinc-900 border border-zinc-800/80 hover:border-orange-500/40 transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5 text-orange-400" />
-                        <span>Add Checklist</span>
-                      </button>
+                    /* No Checklist Yet - Automated Generation Loading State (No buttons) */
+                    <div 
+                      onClick={() => handleOpenDrawer(ach)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-orange-500/5 border border-orange-500/20 text-orange-400 cursor-pointer hover:bg-orange-500/10 transition-colors group/load"
+                      title="Generating with AI Pool Flash Lite. Click to view live progress."
+                    >
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400 shrink-0" />
+                        <span className="text-xs font-mono font-medium">
+                          Generating checklist... Please wait
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider group-hover/load:text-zinc-400">
+                        AI Pool
+                      </span>
                     </div>
                   )}
                 </div>
@@ -871,6 +954,10 @@ export default function AchievementsList({
           setCreatorModalOpen(true);
         }}
         onGuideDeleted={() => {
+          fetchGuides();
+          refreshChecklistProgress();
+        }}
+        onGuideCreated={() => {
           fetchGuides();
           refreshChecklistProgress();
         }}

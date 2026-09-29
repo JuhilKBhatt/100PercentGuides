@@ -55,6 +55,15 @@ export default function VectorGameMap({
   const activeVectors = currentMap?.vectors || vectors;
   const activeViewBox = currentMap?.viewBox || viewBox || "0 0 1024 1440";
 
+  const hasValidMap = Boolean(
+    (activeImageUrl && activeImageUrl.trim().length > 0) ||
+    (activeVectors && Boolean(activeVectors.land || activeVectors.water || activeVectors.river))
+  );
+
+  if (!hasValidMap) {
+    return null;
+  }
+
   // Filter items belonging to the current map (if multi-map)
   const visibleItems = useMemo(() => {
     if (!currentMap || maps.length <= 1) return items;

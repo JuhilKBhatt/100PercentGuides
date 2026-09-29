@@ -35,6 +35,7 @@ interface AchievementChecklistDrawerProps {
   onOpenCreator: (achievement: Achievement, existingGuide?: CollectibleGuide | null) => void;
   onGuideDeleted?: () => void;
   onChecklistProgressChange?: (achievementId: number, completedCount: number, totalCount: number) => void;
+  onGuideCreated?: (newGuide: CollectibleGuide) => void;
 }
 
 export default function AchievementChecklistDrawer({
@@ -47,6 +48,7 @@ export default function AchievementChecklistDrawer({
   onOpenCreator,
   onGuideDeleted,
   onChecklistProgressChange,
+  onGuideCreated,
 }: AchievementChecklistDrawerProps) {
   const [guide, setGuide] = useState<CollectibleGuide | null>(null);
   const [loading, setLoading] = useState(false);
@@ -56,6 +58,8 @@ export default function AchievementChecklistDrawer({
   const [statusFilter, setStatusFilter] = useState<"all" | "todo" | "done">("all");
   const [selectedRegion, setSelectedRegion] = useState<string>("all");
   const [showMap, setShowMap] = useState(true);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Close on Escape key
   useEffect(() => {
@@ -81,10 +85,10 @@ export default function AchievementChecklistDrawer({
 
     if (guideMeta?.guideSlug) {
       setLoading(true);
+      setAiError(null);
       getCollectibleGuide(gameId, guideMeta.guideSlug)
         .then((data) => {
           setGuide(data);
-          // Load checklist progress from local storage
           if (data) {
             const storageKey = `100pg_guide_${gameId}_${data.guideSlug}`;
             try {
@@ -106,10 +110,44 @@ export default function AchievementChecklistDrawer({
         })
         .finally(() => setLoading(false));
     } else {
+      // Auto-trigger AI generation with Gemini 3.5 Flash Lite if no checklist exists yet
       setGuide(null);
       setCheckedItems({});
+      setAiError(null);
+      setIsGeneratingAi(true);
+
+      fetch("/api/ai/generate-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          gameTitle: gameName,
+          achievementId: achievement.id,
+          achievementName: achievement.name,
+          achievementDescription: achievement.description,
+        }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          if (data && !data.error) {
+            setGuide(data);
+            if (onGuideCreated) {
+              onGuideCreated(data);
+            }
+          } else {
+            setAiError(data?.error || "Failed to generate AI checklist.");
+          }
+        })
+        .catch((err) => {
+          console.warn("[AI Guide Auto-Generate Notice]", err);
+          setAiError("Could not automatically generate checklist. You can create one manually.");
+        })
+        .finally(() => setIsGeneratingAi(false));
     }
-  }, [isOpen, achievement, guideMeta?.guideSlug, gameId]);
+  }, [isOpen, achievement, guideMeta?.guideSlug, gameId, gameName]);
 
   // Save progress helper
   const updateCheckedItem = (itemId: number, isChecked: boolean) => {
@@ -170,6 +208,14 @@ export default function AchievementChecklistDrawer({
   const allItems = useMemo(() => {
     return guide?.regions ? guide.regions.flatMap((r) => r.items) : [];
   }, [guide?.regions]);
+
+  const hasMap = useMemo(() => {
+    if (!guide) return false;
+    const hasDirectImage = Boolean(guide.mapImageUrl && guide.mapImageUrl.trim().length > 0);
+    const hasMapsWithImage = Boolean(guide.maps && guide.maps.some((m) => m.imageUrl && m.imageUrl.trim().length > 0));
+    const hasVectors = Boolean(guide.mapVectors && (guide.mapVectors.land || guide.mapVectors.water || guide.mapVectors.river));
+    return hasDirectImage || hasMapsWithImage || hasVectors;
+  }, [guide]);
 
   const totalCount = guide?.totalCount || 0;
   const foundCount = useMemo(() => {
@@ -358,8 +404,8 @@ export default function AchievementChecklistDrawer({
                 )}
               </div>
 
-              {/* Interactive Map (if guide has maps) */}
-              {(guide.maps?.length || guide.mapImageUrl || guide.mapVectors) && (
+              {/* Interactive Map (only if guide has a valid map or image) */}
+              {hasMap && (
                 <div className="border border-zinc-900 rounded-2xl overflow-hidden bg-black shadow-xl">
                   <div className="p-3 bg-zinc-900/60 border-b border-zinc-800/80 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -562,6 +608,33 @@ export default function AchievementChecklistDrawer({
                     No steps match your search filter.
                   </div>
                 )}
+              </div>
+            </div>
+          ) : isGeneratingAi ? (
+            /* Generating with Gemini 3.5 Flash Lite */
+            <div className="py-20 flex flex-col items-center justify-center gap-5 text-center max-w-md mx-auto px-4">
+              <div className="relative">
+                <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/40 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                  <Sparkles className="w-8 h-8 text-orange-400 animate-spin" style={{ animationDuration: "3s" }} />
+                </div>
+                <div className="absolute inset-0 rounded-2xl bg-orange-500/20 blur-xl animate-pulse" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                    Gemini 3.5 Flash Lite
+                  </span>
+                </div>
+                <h3 className="font-outfit font-bold text-xl text-white">
+                  Generating Verified Checklist
+                </h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Researching authenticated in-game milestones, locations, and interactive map pins for &ldquo;{achievement.name}&rdquo;... Please wait.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-orange-400 font-mono bg-zinc-950 px-4 py-2 rounded-xl border border-zinc-800 shadow-md">
+                <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                <span>Validating requirements &amp; building steps...</span>
               </div>
             </div>
           ) : (
