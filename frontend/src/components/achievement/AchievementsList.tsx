@@ -118,11 +118,16 @@ export default function AchievementsList({
 
 
 
-  // Fetch guides from API
+  // Fetch guides from API with safe merging
   const fetchGuides = useCallback(async () => {
     if (!gameId) return;
     const data = await listGameGuides(gameId);
-    setGuides(data);
+    setGuides((prev) => {
+      const map = new Map<string, GuideMeta>();
+      for (const g of prev) if (g?.guideSlug) map.set(g.guideSlug, g);
+      for (const g of data) if (g?.guideSlug) map.set(g.guideSlug, { ...map.get(g.guideSlug), ...g });
+      return Array.from(map.values());
+    });
   }, [gameId]);
 
   useEffect(() => {
@@ -191,21 +196,34 @@ export default function AchievementsList({
     return undefined;
   }, []);
 
-  const getAttachedGuide = useCallback((ach: Achievement): GuideMeta | undefined => {
-    return matchGuideForAchievement(ach, guides);
-  }, [guides, matchGuideForAchievement]);
-
-  // Map achievements to guides
+  // Map achievements to guides with multi-key indexing (id, string, number, steamApiName)
   const achievementGuideMap = useMemo(() => {
-    const map = new Map<number, GuideMeta>();
+    const map = new Map<any, GuideMeta>();
     for (const ach of achievements) {
       const guide = matchGuideForAchievement(ach, guides);
       if (guide) {
         map.set(ach.id, guide);
+        map.set(String(ach.id), guide);
+        if (!isNaN(Number(ach.id))) {
+          map.set(Number(ach.id), guide);
+        }
+        if (ach.steamApiName) {
+          map.set(ach.steamApiName.toLowerCase(), guide);
+        }
       }
     }
     return map;
   }, [achievements, guides, matchGuideForAchievement]);
+
+  const getAttachedGuide = useCallback((ach: Achievement): GuideMeta | undefined => {
+    return (
+      achievementGuideMap.get(ach.id) ||
+      achievementGuideMap.get(String(ach.id)) ||
+      (!isNaN(Number(ach.id)) ? achievementGuideMap.get(Number(ach.id)) : undefined) ||
+      (ach.steamApiName ? achievementGuideMap.get(ach.steamApiName.toLowerCase()) : undefined) ||
+      matchGuideForAchievement(ach, guides)
+    );
+  }, [achievementGuideMap, guides, matchGuideForAchievement]);
 
   // Periodic background sync while there are achievements without guides
   useEffect(() => {
@@ -265,6 +283,16 @@ export default function AchievementsList({
 
     autoGenStartedRef.current = true;
 
+    const sessionKey = `100pg_autogen_${gameId}`;
+    let sessionCompletedAchs: Set<string> = new Set();
+    try {
+      const saved = sessionStorage.getItem(sessionKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) sessionCompletedAchs = new Set(parsed);
+      }
+    } catch (e) {}
+
     const runAutoGenerator = async () => {
       // 1. Pre-fetch fresh guide list directly to ensure we have the latest guides from DynamoDB/Redis
       let currentGuides: GuideMeta[] = initialGuides;
@@ -272,13 +300,22 @@ export default function AchievementsList({
         const fresh = await listGameGuides(gameId);
         if (fresh && fresh.length > 0) {
           currentGuides = fresh;
-          setGuides(fresh);
+          setGuides((prev) => {
+            const map = new Map<string, GuideMeta>();
+            for (const g of prev) if (g?.guideSlug) map.set(g.guideSlug, g);
+            for (const g of fresh) if (g?.guideSlug) map.set(g.guideSlug, { ...map.get(g.guideSlug), ...g });
+            return Array.from(map.values());
+          });
         }
       } catch (e) {
         console.warn("[Auto-Gen Notice] Could not pre-fetch fresh guides:", e);
       }
 
-      const unguided = achievements.filter((a) => !matchGuideForAchievement(a, currentGuides));
+      const unguided = achievements.filter((a) => {
+        if (sessionCompletedAchs.has(String(a.id))) return false;
+        return !matchGuideForAchievement(a, currentGuides);
+      });
+
       if (unguided.length === 0) {
         setIsAutoGenerating(false);
         setCurrentGeneratingName(null);
@@ -311,23 +348,27 @@ export default function AchievementsList({
           });
           if (res.ok) {
             const newGuideData = await res.json();
-            setGuides((prev) => {
-              if (prev.some((g) => g.guideSlug === newGuideData.guideSlug)) return prev;
-              return [
-                ...prev,
-                {
-                  gameId: String(gameId),
-                  guideSlug: newGuideData.guideSlug,
-                  title: newGuideData.title || `${targetAch.name} Checklist`,
-                  totalCount: newGuideData.totalCount || 1,
-                  achievementId: String(targetAch.id),
-                  hasMap: Boolean(newGuideData.maps?.length > 0 && newGuideData.maps[0]?.imageUrl),
-                  updatedAt: Date.now(),
-                },
-              ];
-            });
+            const meta: GuideMeta = {
+              gameId: String(gameId),
+              guideSlug: newGuideData.guideSlug,
+              title: newGuideData.title || `${targetAch.name} Checklist`,
+              totalCount: newGuideData.totalCount || 1,
+              achievementId: String(targetAch.id),
+              achievementIds: [String(targetAch.id)],
+              hasMap: Boolean(newGuideData.maps?.length > 0 && newGuideData.maps[0]?.imageUrl),
+              updatedAt: Date.now(),
+            };
+
+            // Immediately flip this achievement card to show the checklist without waiting for all to finish!
+            setGuides((prev) => [...prev.filter((g) => g.guideSlug !== meta.guideSlug), meta]);
+            currentGuides = [...currentGuides.filter((g) => g.guideSlug !== meta.guideSlug), meta];
+
+            // Record in session so refreshing doesn't restart
+            sessionCompletedAchs.add(String(targetAch.id));
+            try {
+              sessionStorage.setItem(sessionKey, JSON.stringify(Array.from(sessionCompletedAchs)));
+            } catch (e) {}
           }
-          await fetchGuides();
           refreshChecklistProgress();
         } catch (e) {
           console.warn("[Auto-Gen Notice]", targetAch.name, e);
@@ -342,10 +383,13 @@ export default function AchievementsList({
       setIsAutoGenerating(false);
       setCurrentGeneratingName(null);
       setAutoGenProgress(null);
+
+      // Final sync with backend to get any guides generated by background seeder in the meantime
+      await fetchGuides();
     };
 
     runAutoGenerator();
-  }, [achievements, gameId, gameName, fetchGuides, refreshChecklistProgress, initialGuides]);
+  }, [achievements, gameId, gameName, fetchGuides, refreshChecklistProgress, initialGuides, matchGuideForAchievement]);
 
   // Open Drawer to view checklist
   const handleOpenDrawer = (ach: Achievement) => {

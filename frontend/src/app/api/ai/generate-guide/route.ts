@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Multi-Model Pool (Triples RPM from 15 to 45 across independent quotas)
+// Multi-Model Pool (Verified official active models with high throughput)
 const MODEL_POOL = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-3.8-flash",
-  "gemini-3.6-flash",
-  "gemini-3.7-flash",
-  "gemini-2.5-flash",
-  "gemini-3-flash",
-  "gemma-4-31b-it"
+  "gemini-flash-lite-latest",
+  "gemini-3-flash-preview",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash"
 ];
 
 let roundRobinCounter = 0;
@@ -42,6 +40,9 @@ export async function POST(req: NextRequest) {
 
     const guideSlug = `ach-${cleanAchId}`;
     const backendUrl = process.env.BACKEND_URL || "http://backend:8080";
+
+    // Signal user priority to backend Redis to pause background seeder and prioritize active user
+    fetch(backendUrl + "/api/ai/priority", { method: "POST" }).catch(() => {});
 
     // 1. Idempotency Check: If guide already exists in DynamoDB/Redis, return immediately
     try {

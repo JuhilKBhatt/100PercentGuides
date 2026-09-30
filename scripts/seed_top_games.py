@@ -20,12 +20,10 @@ from pathlib import Path
 MODEL_POOL = [
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
-    "gemini-3.8-flash",
-    "gemini-3.6-flash",
-    "gemini-3.7-flash",
-    "gemini-2.5-flash",
-    "gemini-3-flash",
-    "gemma-4-31b-it"
+    "gemini-flash-lite-latest",
+    "gemini-3-flash-preview",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash"
 ]
 
 CHECKPOINT_FILE = Path("scripts/top_100_progress.json")
@@ -76,6 +74,27 @@ def post_json(url, data, timeout=30):
     )
     with urllib.request.urlopen(req, context=ctx, timeout=timeout) as res:
         return json.loads(res.read().decode("utf-8"))
+
+def wait_for_user_priority(backend_url):
+    """
+    Checks if an active user is browsing or generating guides on the website.
+    If active, pauses seeder execution and yields 100% Gemini quota to the user.
+    """
+    has_printed = False
+    while not STOP_REQUESTED:
+        try:
+            prio = fetch_json(f"{backend_url}/api/ai/priority", timeout=5)
+            if prio and prio.get("userActive"):
+                if not has_printed:
+                    print("\n  [Priority Yield] Active user browsing detected. Yielding Gemini quota to user...", flush=True)
+                    has_printed = True
+                interruptible_sleep(3.0)
+                continue
+        except Exception:
+            pass
+        break
+    if has_printed:
+        print("  [Priority Resumed] User session completed. Resuming seeder...", flush=True)
 
 def wait_for_backend(backend_url, max_attempts=60, delay_sec=2):
     print(f"Checking backend connectivity at {backend_url}...")
@@ -477,6 +496,7 @@ def main():
 
         game_success = 0
         for ach_idx, ach in enumerate(unguided, 1):
+            wait_for_user_priority(args.backend)
             if STOP_REQUESTED:
                 print("\n[Shutdown] Stopping generation. Progress up to this point is safely stored in DynamoDB.")
                 save_checkpoint(checkpoint)

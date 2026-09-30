@@ -27,6 +27,23 @@ public class GuideService {
         this.redisTemplate = redisTemplate;
     }
 
+    public void signalUserPriority() {
+        try {
+            redisTemplate.opsForValue().set("user_active_priority", "1", Duration.ofSeconds(30));
+        } catch (Exception e) {
+            log.warn("Failed to set user priority in Redis: {}", e.getMessage());
+        }
+    }
+
+    public boolean isUserPriorityActive() {
+        try {
+            String val = redisTemplate.opsForValue().get("user_active_priority");
+            return "1".equals(val);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public boolean saveGuide(String gameId, String guideSlug, String title, int totalCount, String payloadJson) {
         log.info("Saving guide to DynamoDB: gameId={}, guideSlug={}, title={}", gameId, guideSlug, title);
         try {
@@ -40,6 +57,9 @@ public class GuideService {
             item.put("updatedAt", AttributeValue.builder().n(String.valueOf(now)).build());
 
             String achId = extractAchievementId(payloadJson);
+            if (achId == null && guideSlug != null && guideSlug.startsWith("ach-")) {
+                achId = guideSlug.substring(4);
+            }
             if (achId != null) {
                 item.put("achievementId", AttributeValue.builder().s(achId).build());
             }
@@ -117,15 +137,21 @@ public class GuideService {
             Map<String, AttributeValue> expressionValues = new HashMap<>();
             expressionValues.put(":gid", AttributeValue.builder().s(gameId).build());
 
-            QueryResponse response = dynamoDbClient.query(QueryRequest.builder()
-                    .tableName(DynamoDbConfig.GUIDES_TABLE)
-                    .keyConditionExpression("gameId = :gid")
-                    .expressionAttributeValues(expressionValues)
-                    .build());
-
-            for (Map<String, AttributeValue> item : response.items()) {
-                list.add(parseItemToMeta(item));
-            }
+            Map<String, AttributeValue> startKey = null;
+            do {
+                QueryRequest.Builder qb = QueryRequest.builder()
+                        .tableName(DynamoDbConfig.GUIDES_TABLE)
+                        .keyConditionExpression("gameId = :gid")
+                        .expressionAttributeValues(expressionValues);
+                if (startKey != null && !startKey.isEmpty()) {
+                    qb.exclusiveStartKey(startKey);
+                }
+                QueryResponse response = dynamoDbClient.query(qb.build());
+                for (Map<String, AttributeValue> item : response.items()) {
+                    list.add(parseItemToMeta(item));
+                }
+                startKey = response.lastEvaluatedKey();
+            } while (startKey != null && !startKey.isEmpty());
 
             // Self-healing fallback: If DynamoDB is empty, check Redis keys (e.g. after DynamoDB restart)
             if (list.isEmpty()) {
