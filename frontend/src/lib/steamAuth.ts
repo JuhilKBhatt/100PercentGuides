@@ -43,5 +43,7 @@ export async function logoutSteam(): Promise<boolean> {
 
 export function initiateSteamLogin(returnUrl?: string) {
   const currentPath = returnUrl || (typeof window !== "undefined" ? window.location.pathname + window.location.search : "/");
-  window.location.href = `/api/auth/steam/login?returnUrl=${encodeURIComponent(currentPath)}`;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const originParam = origin ? `&origin=${encodeURIComponent(origin)}` : "";
+  window.location.href = `/api/auth/steam/login?returnUrl=${encodeURIComponent(currentPath)}${originParam}`;
 }

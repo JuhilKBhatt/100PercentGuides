@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPublicOrigin } from "@/lib/origin";
 
 function getSafeReturnUrl(url: string | null): string {
   if (!url) return "/";
@@ -12,13 +13,9 @@ function getSafeReturnUrl(url: string | null): string {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const safeReturnUrl = getSafeReturnUrl(searchParams.get("returnUrl"));
+  const origin = getPublicOrigin(request);
 
-  // Determine origin (respect headers when behind proxy/container)
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "localhost:3000";
-  const proto = request.headers.get("x-forwarded-proto") || "http";
-  const origin = `${proto}://${host}`;
-
-  const callbackUrl = `${origin}/api/auth/steam/callback?returnUrl=${encodeURIComponent(safeReturnUrl)}`;
+  const callbackUrl = `${origin}/api/auth/steam/callback?returnUrl=${encodeURIComponent(safeReturnUrl)}&origin=${encodeURIComponent(origin)}`;
 
   const params = new URLSearchParams({
     "openid.ns": "http://specs.openid.net/auth/2.0",

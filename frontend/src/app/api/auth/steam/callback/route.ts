@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SteamUser } from "@/types";
+import { getPublicOrigin } from "@/lib/origin";
 
 function getSafeReturnUrl(url: string | null): string {
   if (!url) return "/";
@@ -14,10 +15,11 @@ function getSafeReturnUrl(url: string | null): string {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const safeReturnUrl = getSafeReturnUrl(searchParams.get("returnUrl"));
+  const origin = getPublicOrigin(request);
 
   const claimedId = searchParams.get("openid.claimed_id");
   if (!claimedId) {
-    const redirectUrl = new URL(safeReturnUrl, request.url);
+    const redirectUrl = new URL(safeReturnUrl, origin);
     redirectUrl.searchParams.set("error", "steam_auth_failed");
     return NextResponse.redirect(redirectUrl);
   }
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
   const steamId = match ? match[1] : null;
 
   if (!steamId) {
-    const redirectUrl = new URL(safeReturnUrl, request.url);
+    const redirectUrl = new URL(safeReturnUrl, origin);
     redirectUrl.searchParams.set("error", "invalid_steam_id");
     return NextResponse.redirect(redirectUrl);
   }
@@ -36,8 +38,8 @@ export async function GET(request: NextRequest) {
   try {
     const validationParams = new URLSearchParams();
     searchParams.forEach((val, key) => {
-      if (key !== "returnUrl") {
-        validationParams.append(key, val);
+      if (key.startsWith("openid.")) {
+        validationParams.set(key, val);
       }
     });
     validationParams.set("openid.mode", "check_authentication");
@@ -51,13 +53,13 @@ export async function GET(request: NextRequest) {
     const verifyText = await verifyRes.text();
     if (!verifyText.includes("is_valid:true")) {
       console.warn("Security Alert: Steam OpenID signature verification failed for steamId:", steamId);
-      const redirectUrl = new URL(safeReturnUrl, request.url);
+      const redirectUrl = new URL(safeReturnUrl, origin);
       redirectUrl.searchParams.set("error", "steam_signature_invalid");
       return NextResponse.redirect(redirectUrl);
     }
   } catch (err) {
     console.error("Failed to reach Steam OpenID validation service:", err);
-    const redirectUrl = new URL(safeReturnUrl, request.url);
+    const redirectUrl = new URL(safeReturnUrl, origin);
     redirectUrl.searchParams.set("error", "steam_validation_unavailable");
     return NextResponse.redirect(redirectUrl);
   }
@@ -95,7 +97,7 @@ export async function GET(request: NextRequest) {
     communityVisibilityState,
   };
 
-  const destinationUrl = new URL(safeReturnUrl, request.url);
+  const destinationUrl = new URL(safeReturnUrl, origin);
   const response = NextResponse.redirect(destinationUrl);
 
   // Store user info in secure cookie (HttpOnly protects from XSS session theft)
@@ -103,7 +105,7 @@ export async function GET(request: NextRequest) {
     path: "/",
     maxAge: 60 * 60 * 24 * 30, // 30 days
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: origin.startsWith("https://"),
     sameSite: "lax",
   });
 
