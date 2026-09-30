@@ -1,0 +1,37 @@
+{
+  "title": "100 Percent Guides",
+  "description": "A high-performance video game achievement and 100% completion guide platform. Differentiates from legacy wikis by guaranteeing verified step-by-step checklists, official Steam OpenID profile syncing, zero-dependency interactive vector SVG maps, and autonomous AI-assisted roadmap generation.",
+  "language": [
+    "Next.js",
+    "TypeScript",
+    "React",
+    "Tailwind CSS",
+    "Java",
+    "Spring Boot",
+    "AWS DynamoDB",
+    "Redis",
+    "Docker",
+    "Steam Web API",
+    "RAWG API",
+    "Google Gemini AI"
+  ],
+  "liveDemo": "https://100percentguides.juhilkbhatt.com",
+  "images": [
+    "https://res.cloudinary.com/dmj4ggkjq/image/upload/v1790782790/Screenshot_2026-10-01_at_1.32.46_am_zoqcih.png",
+    "https://res.cloudinary.com/dmj4ggkjq/image/upload/v1790782842/Screenshot_2026-10-01_at_1.30.33_am_slhup6.png",
+    "https://res.cloudinary.com/dmj4ggkjq/image/upload/v1790782792/Screenshot_2026-10-01_at_1.31.11_am_k05cwl.png",
+    "https://res.cloudinary.com/dmj4ggkjq/image/upload/v1790782787/Screenshot_2026-10-01_at_1.34.04_am_tbfl9h.png"
+  ],
+  "videoDemo": "https://res.cloudinary.com/dmj4ggkjq/video/upload/v1790782747/Screen_Recording_2026-10-01_at_1.34.49_am_xiqlar.mov",
+  "Priority": 1,
+  "type": "Solo",
+  "version": "Prod",
+  "Visibilty": true,
+  "Highlights": [
+    "Real-time Steam OpenID 2.0 player profile syncing and dynamic achievement progress tracking",
+    "Zero-dependency interactive vector SVG game maps with coordinate pin placement and bidirectional checklist sync",
+    "Autonomous AI guide generation engine powered by Gemini Multi-Model Pool router with automatic failover",
+    "Multi-tier caching architecture delivering sub-5ms response times via Redis L1 and AWS DynamoDB L2",
+    "Global compliance framework adhering to GDPR, CCPA/CPRA, and Australian Privacy Principles (APPs)"
+  ]
+}
