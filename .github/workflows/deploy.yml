@@ -29,11 +29,11 @@ jobs:
           # 4. Swap to new containers
           docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-          # 5. Health Check: verify containers didn't crash on startup
-          echo "Waiting 12s for services to stabilize..."
-          sleep 12
+          # 5. Health Check (Wait 15s, follow redirects with -L)
+          echo "Waiting 15s for services to stabilize..."
+          sleep 15
 
-          if ! curl -fsS http://localhost:3005 > /dev/null; then
+          if ! curl -fsSL http://localhost:3005 > /dev/null; then
             echo "❌ Health check failed! Containers crashed on startup."
             echo "🔄 Rolling back to previous working commit: $PREV_COMMIT..."
             git reset --hard $PREV_COMMIT
