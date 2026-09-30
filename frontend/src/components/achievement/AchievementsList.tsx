@@ -28,6 +28,9 @@ import {
   Code,
   FileCode,
   Loader2,
+  MapPin,
+  Map as MapIcon,
+  Compass,
 } from "lucide-react";
 
 interface AchievementsListProps {
@@ -97,7 +100,7 @@ export default function AchievementsList({
 
   // --- Guides & Checklists State ---
   const [guides, setGuides] = useState<GuideMeta[]>(initialGuides);
-  const [checklistProgress, setChecklistProgress] = useState<Record<number, { completed: number; total: number }>>({});
+  const [checklistProgress, setChecklistProgress] = useState<Record<string | number, { completed: number; total: number }>>({});
 
   // Drawer & Modal States
   const [selectedAchievementForDrawer, setSelectedAchievementForDrawer] = useState<Achievement | null>(null);
@@ -246,10 +249,12 @@ export default function AchievementsList({
     };
   }, [achievements, guides, matchGuideForAchievement, fetchGuides]);
 
+  const hasNoAchievements = achievements.length === 0;
+
   // Load progress for each guide from localStorage
   const refreshChecklistProgress = useCallback(() => {
     if (typeof window === "undefined" || !gameId) return;
-    const nextProgress: Record<number, { completed: number; total: number }> = {};
+    const nextProgress: Record<string | number, { completed: number; total: number }> = {};
 
     achievements.forEach((ach) => {
       const guideMeta = achievementGuideMap.get(ach.id) || getAttachedGuide(ach);
@@ -261,17 +266,87 @@ export default function AchievementsList({
             const parsed = JSON.parse(raw);
             const completed = Object.values(parsed).filter(Boolean).length;
             nextProgress[ach.id] = { completed, total: guideMeta.totalCount };
+            nextProgress[guideMeta.guideSlug] = { completed, total: guideMeta.totalCount };
           } else {
             nextProgress[ach.id] = { completed: 0, total: guideMeta.totalCount };
+            nextProgress[guideMeta.guideSlug] = { completed: 0, total: guideMeta.totalCount };
           }
         } catch (e) {
           nextProgress[ach.id] = { completed: 0, total: guideMeta.totalCount };
+          nextProgress[guideMeta.guideSlug] = { completed: 0, total: guideMeta.totalCount };
+        }
+      }
+    });
+
+    // Also populate progress for standalone guides
+    guides.forEach((g) => {
+      if (g && g.guideSlug && !nextProgress[g.guideSlug]) {
+        const storageKey = `100pg_guide_${gameId}_${g.guideSlug}`;
+        try {
+          const raw = localStorage.getItem(storageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const completed = Object.values(parsed).filter(Boolean).length;
+            nextProgress[g.guideSlug] = { completed, total: g.totalCount || 1 };
+          } else {
+            nextProgress[g.guideSlug] = { completed: 0, total: g.totalCount || 1 };
+          }
+        } catch (e) {
+          nextProgress[g.guideSlug] = { completed: 0, total: g.totalCount || 1 };
         }
       }
     });
 
     setChecklistProgress(nextProgress);
-  }, [gameId, achievements, achievementGuideMap]);
+  }, [gameId, achievements, achievementGuideMap, guides, getAttachedGuide]);
+
+  // Master roadmap generator for games with 0 achievements
+  const generateMasterRoadmap = useCallback(async () => {
+    setIsAutoGenerating(true);
+    setCurrentGeneratingName("100% Completion Roadmap");
+    setAutoGenProgress({ done: 0, total: 1 });
+
+    try {
+      const res = await fetch("/api/ai/generate-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          gameTitle: gameName,
+          achievementId: "100-percent-roadmap",
+          achievementName: "100% Completion Roadmap",
+          achievementDescription: "Comprehensive 100% completion guide covering storyline progression, collectible locations, secret milestones, and optional side objectives.",
+        }),
+      });
+      if (res.ok) {
+        const newGuideData = await res.json();
+        const meta: GuideMeta = {
+          gameId: String(gameId),
+          guideSlug: newGuideData.guideSlug,
+          title: newGuideData.title || "100% Completion Roadmap",
+          subtitle: newGuideData.subtitle || "Step-by-step verified completion roadmap and milestones.",
+          totalCount: newGuideData.totalCount || (newGuideData.regions?.reduce((acc: number, r: any) => acc + (r.items?.length || 0), 0) || 1),
+          achievementId: "100-percent-roadmap",
+          achievementIds: ["100-percent-roadmap"],
+          hasMap: Boolean(newGuideData.maps?.length > 0 && newGuideData.maps[0]?.imageUrl),
+          updatedAt: Date.now(),
+        };
+        setGuides((prev) => [...prev.filter((g) => g.guideSlug !== meta.guideSlug), meta]);
+        try {
+          const sessionKey = `100pg_autogen_${gameId}`;
+          sessionStorage.setItem(sessionKey, JSON.stringify(["100-percent-roadmap"]));
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn("[Auto-Gen Notice] Could not generate master roadmap:", e);
+    } finally {
+      setIsAutoGenerating(false);
+      setCurrentGeneratingName(null);
+      setAutoGenProgress(null);
+      await fetchGuides();
+      refreshChecklistProgress();
+    }
+  }, [gameId, gameName, fetchGuides, refreshChecklistProgress]);
 
   useEffect(() => {
     refreshChecklistProgress();
@@ -279,7 +354,7 @@ export default function AchievementsList({
 
   // Automatically start generating when user loads the page if any achievement lacks a guide
   useEffect(() => {
-    if (!achievements.length || autoGenStartedRef.current) return;
+    if (autoGenStartedRef.current) return;
 
     autoGenStartedRef.current = true;
 
@@ -309,6 +384,14 @@ export default function AchievementsList({
         }
       } catch (e) {
         console.warn("[Auto-Gen Notice] Could not pre-fetch fresh guides:", e);
+      }
+
+      // If game has no achievements, auto-generate master roadmap if no guides exist
+      if (achievements.length === 0) {
+        if (currentGuides.length === 0 && !sessionCompletedAchs.has("100-percent-roadmap")) {
+          await generateMasterRoadmap();
+        }
+        return;
       }
 
       const unguided = achievements.filter((a) => {
@@ -390,6 +473,30 @@ export default function AchievementsList({
 
     runAutoGenerator();
   }, [achievements, gameId, gameName, fetchGuides, refreshChecklistProgress, initialGuides, matchGuideForAchievement]);
+
+  // Open Drawer to view standalone guide (when there are no achievements or from guide card)
+  const handleOpenGuideDrawer = (guide: GuideMeta) => {
+    setSelectedAchievementForDrawer(null);
+    setSelectedGuideForDrawer(guide);
+    setIsDrawerOpen(true);
+  };
+
+  // Open Creator to edit an existing guide
+  const handleEditGuide = async (guideMeta: GuideMeta) => {
+    const guideData = await getCollectibleGuide(gameId, guideMeta.guideSlug);
+    setCreatorAchievement(null);
+    setCreatorGuide(guideData);
+    setCreatorTab("builder");
+    setCreatorModalOpen(true);
+  };
+
+  // Open Creator to create a new guide
+  const handleCreateNewGuide = () => {
+    setCreatorAchievement(null);
+    setCreatorGuide(null);
+    setCreatorTab("general");
+    setCreatorModalOpen(true);
+  };
 
   // Open Drawer to view checklist
   const handleOpenDrawer = (ach: Achievement) => {
@@ -614,8 +721,8 @@ export default function AchievementsList({
 
   return (
     <div className="space-y-6">
-      {/* Steam Sync Progress Bar & Login Banner */}
-      {steamAppId && (
+      {/* Steam Sync Progress Bar & Login Banner (Only when game has official achievements) */}
+      {steamAppId && !hasNoAchievements && (
         <div className="bg-zinc-950/90 border border-zinc-800 rounded-2xl p-5 shadow-2xl backdrop-blur-md relative overflow-hidden">
           {/* Subtle background glow */}
           <div className="absolute -right-20 -top-20 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -748,12 +855,60 @@ export default function AchievementsList({
         </div>
       )}
 
+      {/* Notice Banner when game has No Official Achievements */}
+      {hasNoAchievements && (
+        <div className="bg-zinc-950/90 border border-zinc-800 rounded-2xl p-5 shadow-2xl backdrop-blur-md relative overflow-hidden">
+          <div className="absolute -right-20 -top-20 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center shrink-0 text-orange-400 shadow-md">
+                <Compass className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-white font-outfit">
+                    No Official Steam Achievements Detected
+                  </h3>
+                  <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    100% Roadmap Mode
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 max-w-xl leading-relaxed mt-1">
+                  This title does not have an official Steam achievement list (e.g. DRM-free, Nintendo, retro, or custom platform). You can follow verified 100% completion guides, track milestones, and view interactive maps below.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              <button
+                onClick={handleCreateNewGuide}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 text-orange-400 hover:text-orange-300 text-xs font-semibold transition-all shadow-sm"
+              >
+                <Plus size={14} />
+                <span>Add Custom Checklist</span>
+              </button>
+              <button
+                onClick={handleOpenJsonImport}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+              >
+                <FileCode size={14} />
+                <span>Import JSON</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header and Controls */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <h2 className="text-3xl font-bold font-outfit text-white flex items-center gap-3">
-            <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block"></span>
-            Achievements & Checklists ({achievements.length})
+            <span className="w-2.5 h-7 rounded-full bg-gradient-to-b from-orange-500 to-yellow-400 inline-block shadow-[0_0_12px_rgba(249,115,22,0.8)]"></span>
+            {hasNoAchievements ? (
+              <>100% Completion Roadmaps & Guides ({guides.length})</>
+            ) : (
+              <>Achievements & Checklists ({achievements.length})</>
+            )}
           </h2>
 
           {/* Live Automatic AI Status Indicator (No manual buttons) */}
@@ -789,8 +944,158 @@ export default function AchievementsList({
           </div>
         )}
 
-        {/* Filter Tabs & Search Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
+      </div>
+
+      {hasNoAchievements ? (
+        /* Roadmaps Grid / Empty State for Games with 0 Achievements */
+        <div className="space-y-4">
+          {guides.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4">
+              {guides.map((guide) => {
+                const progress = checklistProgress[guide.guideSlug] || { completed: 0, total: guide.totalCount || 1 };
+                const isCompleted = progress.total > 0 && progress.completed >= progress.total;
+
+                return (
+                  <div
+                    key={guide.guideSlug}
+                    className={`flex flex-col justify-between p-5 rounded-2xl transition-all group relative overflow-hidden border ${
+                      isCompleted
+                        ? "border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-zinc-950 to-black hover:border-emerald-400/70 shadow-[0_0_25px_rgba(16,185,129,0.1)]"
+                        : "border-zinc-900 bg-zinc-950/90 hover:border-orange-500/50 hover:shadow-[0_0_25px_rgba(249,115,22,0.12)]"
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-start gap-4">
+                        <div
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
+                            isCompleted
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                              : "bg-orange-500/10 border-orange-500/30 text-orange-400"
+                          }`}
+                        >
+                          {isCompleted ? <CheckCircle2 size={24} /> : <Compass size={24} />}
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-outfit font-bold text-lg text-white group-hover:text-amber-300 transition-colors">
+                              {guide.title}
+                            </h3>
+                            {guide.hasMap && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                                <MapPin size={10} />
+                                Interactive Map
+                              </span>
+                            )}
+                            {isCompleted && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                <Check size={10} />
+                                100% Completed
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-zinc-400 leading-relaxed max-w-xl">
+                            {guide.subtitle || "Step-by-step verified completion roadmap and milestones."}
+                          </p>
+
+                          {/* Progress Counter & Bar */}
+                          <div className="flex items-center gap-3 pt-2">
+                            <span className="text-xs font-mono text-zinc-400">
+                              <strong className="text-white">{progress.completed}</strong> of <strong className="text-white">{guide.totalCount}</strong> Steps
+                            </span>
+                            <div className="w-32 h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-300 ${
+                                  isCompleted ? "bg-emerald-500" : "bg-gradient-to-r from-orange-500 to-amber-400"
+                                }`}
+                                style={{
+                                  width: `${Math.min(100, Math.round(((progress.completed || 0) / (guide.totalCount || 1)) * 100))}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
+                        <button
+                          onClick={() => handleOpenGuideDrawer(guide)}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-black text-xs font-bold shadow-lg shadow-orange-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          {guide.hasMap ? <MapIcon size={14} /> : <CheckSquare size={14} />}
+                          <span>{guide.hasMap ? "View Checklist & Map" : "View Checklist"}</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleEditGuide(guide)}
+                          className="p-2.5 rounded-xl text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
+                          title="Edit Checklist"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : isAutoGenerating ? (
+            <div className="p-10 rounded-2xl bg-zinc-950/80 border border-orange-500/30 text-center flex flex-col items-center justify-center gap-3 shadow-xl">
+              <div className="w-14 h-14 rounded-2xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-orange-400">
+                <Loader2 size={28} className="animate-spin text-orange-400" />
+              </div>
+              <h3 className="text-lg font-bold text-white font-outfit">
+                Generating 100% Completion Roadmap
+              </h3>
+              <p className="text-xs text-zinc-400 max-w-md leading-relaxed">
+                Researching authenticated storyline quests, collectibles, and 100% milestones with Gemini Multi-Model Pool... Please wait.
+              </p>
+            </div>
+          ) : (
+            <div className="p-10 rounded-2xl bg-zinc-950/80 border border-zinc-900 text-center flex flex-col items-center justify-center gap-4 shadow-xl">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-md">
+                <Trophy size={28} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold text-white font-outfit">
+                  No 100% Completion Roadmaps Yet
+                </h3>
+                <p className="text-xs text-zinc-400 max-w-md leading-relaxed">
+                  This title does not have official achievements. Generate a verified 100% roadmap covering all storyline quests, collectibles, and secret milestones or create your own custom checklist.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 pt-2 flex-wrap justify-center">
+                <button
+                  onClick={generateMasterRoadmap}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-black text-xs font-bold shadow-lg shadow-orange-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <Sparkles size={14} />
+                  <span>Generate 100% Completion Roadmap</span>
+                </button>
+                <button
+                  onClick={handleCreateNewGuide}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+                >
+                  <Plus size={14} />
+                  <span>Add Custom Checklist</span>
+                </button>
+                <button
+                  onClick={handleOpenJsonImport}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-semibold transition-all"
+                >
+                  <FileCode size={14} />
+                  <span>Import JSON</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Filter Tabs & Search Bar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2">
           {/* Tabs */}
           <div className="flex items-center gap-1.5 p-1 bg-zinc-950 border border-zinc-900 rounded-xl w-fit flex-wrap">
             <button
@@ -866,7 +1171,6 @@ export default function AchievementsList({
             </div>
           </div>
         </div>
-      </div>
 
       {/* Grid of Achievements with Checklist Buttons */}
       <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
@@ -1073,6 +1377,8 @@ export default function AchievementsList({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Slide-over Drawer for Achievement Checklist & Map */}
       <AchievementChecklistDrawer
@@ -1101,6 +1407,9 @@ export default function AchievementsList({
           setChecklistProgress((prev) => ({
             ...prev,
             [achId]: { completed: completedCount, total: totalCount },
+            ...(selectedGuideForDrawer?.guideSlug
+              ? { [selectedGuideForDrawer.guideSlug]: { completed: completedCount, total: totalCount } }
+              : {}),
           }));
         }}
       />

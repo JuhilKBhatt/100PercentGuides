@@ -61,6 +61,7 @@ export interface GuideMeta {
   gameId: string;
   guideSlug: string;
   title: string;
+  subtitle?: string;
   totalCount: number;
   updatedAt?: number;
   mapsCount?: number;

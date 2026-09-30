@@ -180,10 +180,19 @@ export default function RecentlyVisitedSection({ fallbackGames = [] }: RecentlyV
                     key={game.id}
                     className="group flex flex-col bg-black border border-zinc-900 rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl hover:border-orange-500/50 hover:shadow-orange-500/10 transition-all duration-300 hover:-translate-y-1"
                   >
-                    <div
-                      className="w-full h-48 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
-                      style={{ backgroundImage: `url(${game.background_image})` }}
-                    />
+                    <div className="relative w-full h-48 overflow-hidden bg-zinc-950">
+                      {game.background_image ? (
+                        <div
+                          className="w-full h-full bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
+                          style={{ backgroundImage: `url(${game.background_image})` }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-zinc-950 border-b border-zinc-900 group-hover:bg-zinc-900 transition-colors">
+                          <Gamepad2 size={40} className="text-zinc-800 group-hover:text-orange-500/60 transition-colors" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none" />
+                    </div>
                     <div className="p-5 flex flex-col justify-between flex-1 relative z-10 bg-black border-t border-zinc-900">
                       <h4 className="font-outfit font-semibold text-lg text-white group-hover:text-amber-400 transition-colors line-clamp-1">
                         {game.name}

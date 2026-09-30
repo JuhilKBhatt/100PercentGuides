@@ -562,6 +562,11 @@ export default function GuideCreatorModal({
 
                 {/* Achievements List */}
                 <div className="max-h-48 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                  {availableAchievements.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-zinc-500 italic bg-zinc-950/60 rounded-xl border border-zinc-900">
+                      No achievements detected for this game. You can author a standalone 100% completion guide or collectible checklist.
+                    </div>
+                  ) : null}
                   {availableAchievements
                     .filter((a) =>
                       achievementSearch.trim()

@@ -76,9 +76,17 @@ export default function AchievementChecklistDrawer({
     };
   }, [isOpen, onClose]);
 
+  const effectiveAchievement: Achievement = achievement || {
+    id: guideMeta?.achievementId ? (isNaN(Number(guideMeta.achievementId)) ? 0 : Number(guideMeta.achievementId)) : 0,
+    name: guideMeta?.title || "100% Completion Checklist",
+    description: "Step-by-step verified completion roadmap and milestones.",
+    image: "",
+    percent: "100.0",
+  };
+
   // Load guide when drawer opens with a guideMeta or achievement
   useEffect(() => {
-    if (!isOpen || !achievement) {
+    if (!isOpen || (!achievement && !guideMeta?.guideSlug)) {
       setGuide(null);
       return;
     }
@@ -98,7 +106,7 @@ export default function AchievementChecklistDrawer({
                 setCheckedItems(parsed);
                 const foundCount = Object.values(parsed).filter(Boolean).length;
                 if (onChecklistProgressChange) {
-                  onChecklistProgressChange(achievement.id, foundCount, data.totalCount);
+                  onChecklistProgressChange(effectiveAchievement.id, foundCount, data.totalCount);
                 }
               } else {
                 setCheckedItems({});
@@ -122,9 +130,9 @@ export default function AchievementChecklistDrawer({
         body: JSON.stringify({
           gameId,
           gameTitle: gameName,
-          achievementId: achievement.id,
-          achievementName: achievement.name,
-          achievementDescription: achievement.description,
+          achievementId: achievement ? achievement.id : (guideMeta?.achievementId || "100-percent-roadmap"),
+          achievementName: effectiveAchievement.name,
+          achievementDescription: effectiveAchievement.description,
         }),
       })
         .then((res) => {
@@ -252,9 +260,9 @@ export default function AchievementChecklistDrawer({
       .filter((r) => r.items.length > 0);
   }, [guide?.regions, selectedRegion, statusFilter, searchQuery, checkedItems]);
 
-  if (!isOpen || !achievement) return null;
+  if (!isOpen || (!achievement && !guideMeta?.guideSlug && !guide)) return null;
 
-  const tierInfo = getAchievementTierInfo(achievement.percent);
+  const tierInfo = getAchievementTierInfo(effectiveAchievement.percent);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -271,10 +279,10 @@ export default function AchievementChecklistDrawer({
           <div className="flex items-start gap-3.5 min-w-0">
             {/* Achievement Icon */}
             <div className="relative shrink-0 mt-0.5">
-              {achievement.image ? (
+              {effectiveAchievement.image ? (
                 <img
-                  src={achievement.image}
-                  alt={achievement.name}
+                  src={effectiveAchievement.image}
+                  alt={effectiveAchievement.name}
                   className="w-11 h-11 rounded-lg object-cover border border-zinc-800 shadow-md"
                 />
               ) : (
@@ -282,7 +290,7 @@ export default function AchievementChecklistDrawer({
                   <Trophy className="w-5 h-5 text-zinc-600" />
                 </div>
               )}
-              {achievement.hidden && (
+              {effectiveAchievement.hidden && (
                 <div className="absolute -top-1 -left-1 bg-amber-500 text-black rounded-full p-0.5 shadow-md">
                   <Sparkles className="w-2.5 h-2.5" />
                 </div>
@@ -294,9 +302,9 @@ export default function AchievementChecklistDrawer({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${tierInfo.dotClass} ${tierInfo.glowClass}`} />
                 <h2 className="text-xl font-bold font-outfit text-white truncate">
-                  {achievement.name}
+                  {effectiveAchievement.name}
                 </h2>
-                {achievement.hidden && (
+                {effectiveAchievement.hidden && (
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
                     Secret
                   </span>
@@ -309,7 +317,7 @@ export default function AchievementChecklistDrawer({
               </div>
 
               <p className="text-xs text-zinc-400 mt-1 line-clamp-2 leading-relaxed">
-                {achievement.description || "Unlock this achievement by completing the checklist below."}
+                {effectiveAchievement.description || "Unlock this achievement by completing the checklist below."}
               </p>
             </div>
           </div>
@@ -319,7 +327,7 @@ export default function AchievementChecklistDrawer({
             {guide && (
               <>
                 <button
-                  onClick={() => onOpenCreator(achievement, guide)}
+                  onClick={() => onOpenCreator(effectiveAchievement, guide)}
                   className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-900 border border-zinc-800 transition-colors"
                   title="Edit Checklist & Map"
                 >
@@ -629,7 +637,7 @@ export default function AchievementChecklistDrawer({
                   Generating Verified Checklist
                 </h3>
                 <p className="text-xs text-zinc-400 leading-relaxed">
-                  Researching authenticated in-game milestones, locations, and interactive map pins for &ldquo;{achievement.name}&rdquo;... Please wait.
+                  Researching authenticated in-game milestones, locations, and interactive map pins for &ldquo;{effectiveAchievement.name}&rdquo;... Please wait.
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs text-orange-400 font-mono bg-zinc-950 px-4 py-2 rounded-xl border border-zinc-800 shadow-md">
@@ -648,13 +656,13 @@ export default function AchievementChecklistDrawer({
                   No Checklist Created Yet
                 </h3>
                 <p className="text-xs text-zinc-400 leading-relaxed">
-                  Add step-by-step instructions, map locations, and drag-and-drop pins specifically for unlocking &quot;{achievement.name}&quot;.
+                  Add step-by-step instructions, map locations, and drag-and-drop pins specifically for unlocking &quot;{effectiveAchievement.name}&quot;.
                 </p>
               </div>
 
               <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <button
-                  onClick={() => onOpenCreator(achievement, null)}
+                  onClick={() => onOpenCreator(effectiveAchievement, null)}
                   className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-black bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400 hover:from-orange-600 hover:to-yellow-500 shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 transition-all"
                 >
                   <Plus className="w-4 h-4" />

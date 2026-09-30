@@ -485,7 +485,29 @@ def main():
         if args.ach_limit:
             unguided = unguided[:args.ach_limit]
 
-        if not unguided:
+        if not achievements:
+            # Handle games with 0 official achievements by checking / generating a Master 100% Roadmap
+            has_master_roadmap = any(
+                eg.get("achievementId") == "100-percent-roadmap" or
+                eg.get("guideSlug") == "ach-100-percent-roadmap" or
+                "100%" in (eg.get("title") or "")
+                for eg in existing_guides
+            )
+            if has_master_roadmap:
+                print(f"  ✓ Game has 0 official achievements and master 100% roadmap is already seeded!")
+                completed_games.add(gid)
+                checkpoint["completed_games"] = list(completed_games)
+                save_checkpoint(checkpoint)
+                continue
+            else:
+                print(f"  • Game has 0 official achievements. Seeding Master 100% Completion Roadmap...")
+                master_ach = {
+                    "id": "100-percent-roadmap",
+                    "name": "100% Completion Roadmap",
+                    "description": "Comprehensive 100% completion guide covering storyline progression, collectible locations, secret milestones, and optional side objectives."
+                }
+                unguided = [master_ach]
+        elif not unguided:
             print(f"  ✓ All {len(achievements)} achievements already have guides in DynamoDB!")
             completed_games.add(gid)
             checkpoint["completed_games"] = list(completed_games)
