@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getGameDetails, getCollectibleGuide } from "@/lib/api";
 import StepByStepGuideViewer from "@/components/guide/StepByStepGuideViewer";
 import JsonLd from "@/components/seo/JsonLd";
+import GameVisitTracker from "@/components/history/GameVisitTracker";
 import { ChevronRight, ArrowLeft, Gamepad2 } from "lucide-react";
 import { notFound } from "next/navigation";
 
@@ -107,6 +108,17 @@ export default async function CollectibleGuidePage({ params }: Props) {
       {/* Schema.org Structured Data */}
       <JsonLd data={howToSchema} />
       <JsonLd data={breadcrumbSchema} />
+
+      {/* Track User Visit to this Guide */}
+      <GameVisitTracker
+        item={{
+          id: `${id}-${guideSlug}`,
+          url: `/game/${id}/${guideSlug}`,
+          name: `${game.name}: ${guide.title}`,
+          background_image: game.background_image,
+          subtitle: guide.subtitle || "100% Step-by-Step Guide",
+        }}
+      />
 
       {/* Breadcrumb Navigation Header */}
       <div className="border-b border-zinc-900 bg-black/90 backdrop-blur-md sticky top-16 z-40">

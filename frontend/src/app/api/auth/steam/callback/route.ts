@@ -1,24 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SteamUser } from "@/types";
 
+function getSafeReturnUrl(url: string | null): string {
+  if (!url) return "/";
+  const trimmed = url.trim();
+  // Ensure returnUrl is strictly a relative path to prevent Open Redirects
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//") && !trimmed.startsWith("/\\") && !trimmed.includes("://")) {
+    return trimmed;
+  }
+  return "/";
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const returnUrl = searchParams.get("returnUrl") || "/";
+  const safeReturnUrl = getSafeReturnUrl(searchParams.get("returnUrl"));
 
   const claimedId = searchParams.get("openid.claimed_id");
   if (!claimedId) {
-    return NextResponse.redirect(new URL(`${returnUrl}?error=steam_auth_failed`, request.url));
+    const redirectUrl = new URL(safeReturnUrl, request.url);
+    redirectUrl.searchParams.set("error", "steam_auth_failed");
+    return NextResponse.redirect(redirectUrl);
   }
 
   // Extract 17-digit 64-bit Steam ID from claimed_id (https://steamcommunity.com/openid/id/76561198000000000)
-  const match = claimedId.match(/\/id\/(\d+)/);
+  const match = claimedId.match(/\/id\/(\d{17})/);
   const steamId = match ? match[1] : null;
 
   if (!steamId) {
-    return NextResponse.redirect(new URL(`${returnUrl}?error=invalid_steam_id`, request.url));
+    const redirectUrl = new URL(safeReturnUrl, request.url);
+    redirectUrl.searchParams.set("error", "invalid_steam_id");
+    return NextResponse.redirect(redirectUrl);
   }
 
-  // Validate the OpenID assertion with Steam
+  // Validate the OpenID assertion strictly with Steam
   try {
     const validationParams = new URLSearchParams();
     searchParams.forEach((val, key) => {
@@ -36,11 +50,16 @@ export async function GET(request: NextRequest) {
 
     const verifyText = await verifyRes.text();
     if (!verifyText.includes("is_valid:true")) {
-      console.warn("Steam OpenID signature check did not return is_valid:true:", verifyText);
-      // Fallback: if steamId is a valid 64-bit ID, continue gracefully
+      console.warn("Security Alert: Steam OpenID signature verification failed for steamId:", steamId);
+      const redirectUrl = new URL(safeReturnUrl, request.url);
+      redirectUrl.searchParams.set("error", "steam_signature_invalid");
+      return NextResponse.redirect(redirectUrl);
     }
   } catch (err) {
-    console.warn("Failed to reach Steam OpenID validation service:", err);
+    console.error("Failed to reach Steam OpenID validation service:", err);
+    const redirectUrl = new URL(safeReturnUrl, request.url);
+    redirectUrl.searchParams.set("error", "steam_validation_unavailable");
+    return NextResponse.redirect(redirectUrl);
   }
 
   // Fetch player profile from backend
@@ -76,14 +95,15 @@ export async function GET(request: NextRequest) {
     communityVisibilityState,
   };
 
-  // Determine redirect URL
-  const destinationUrl = new URL(returnUrl, request.url);
-
+  const destinationUrl = new URL(safeReturnUrl, request.url);
   const response = NextResponse.redirect(destinationUrl);
-  // Store user info in cookie (accessible to client and server)
+
+  // Store user info in secure cookie (HttpOnly protects from XSS session theft)
   response.cookies.set("steam_user", JSON.stringify(steamUser), {
     path: "/",
     maxAge: 60 * 60 * 24 * 30, // 30 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
   });
 

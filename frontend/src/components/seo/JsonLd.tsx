@@ -5,10 +5,15 @@ interface JsonLdProps {
 }
 
 export default function JsonLd({ data }: JsonLdProps) {
+  // Prevent XSS script breakout by escaping `<` and `-->`
+  const jsonString = JSON.stringify(data)
+    .replace(/</g, "\\u003c")
+    .replace(/-->/g, "--\\>");
+
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+      dangerouslySetInnerHTML={{ __html: jsonString }}
     />
   );
 }

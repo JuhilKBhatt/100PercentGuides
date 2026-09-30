@@ -20,6 +20,7 @@ public class GameController {
 
     private static final Logger log = LoggerFactory.getLogger(GameController.class);
     private static final Duration TTL_24_HOURS = Duration.ofHours(24);
+    private static final Pattern SAFE_ID = Pattern.compile("^[a-zA-Z0-9_-]{1,64}$");
 
     private final RawgClientService rawgClientService;
     private final GameCacheService gameCacheService;
@@ -38,11 +39,16 @@ public class GameController {
 
     @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> search(@RequestParam(value = "q", defaultValue = "") String query) {
-        if (query.trim().length() < 2) {
+        String trimmed = query.trim();
+        if (trimmed.length() < 2) {
             return ResponseEntity.ok("{\"results\":[]}");
         }
-        String cacheKey = "search:" + query.trim().toLowerCase();
-        String data = gameCacheService.getOrFetch(cacheKey, TTL_24_HOURS, () -> rawgClientService.searchGames(query));
+        if (trimmed.length() > 100) {
+            trimmed = trimmed.substring(0, 100);
+        }
+        String cacheKey = "search:" + trimmed.toLowerCase();
+        final String q = trimmed;
+        String data = gameCacheService.getOrFetch(cacheKey, TTL_24_HOURS, () -> rawgClientService.searchGames(q));
         return ResponseEntity.ok(data);
     }
 
@@ -55,11 +61,18 @@ public class GameController {
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getDetails(@PathVariable("id") String id) {
+        if (!SAFE_ID.matcher(id).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid id format\"}");
+        }
         String cacheKey = "game:details:" + id;
         String data = gameCacheService.getOrFetch(cacheKey, TTL_24_HOURS, () -> {
             String details = rawgClientService.getGameDetails(id);
             return enrichWithSteamData(id, details);
         });
+
+        if (data == null || data.isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
 
         // If previously cached without steamAppId, enrich and return
         if (!data.contains("\"steamAppId\"")) {
@@ -72,6 +85,9 @@ public class GameController {
     public ResponseEntity<String> getAchievements(
             @PathVariable("id") String id,
             @RequestParam(value = "refresh", required = false, defaultValue = "false") boolean refresh) {
+        if (!SAFE_ID.matcher(id).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid id format\"}");
+        }
         String cacheKey = "game:achievements:" + id;
 
         if (refresh) {
@@ -97,6 +113,9 @@ public class GameController {
 
     @GetMapping(value = "/{id}/checklist", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getChecklist(@PathVariable("id") String id) {
+        if (!SAFE_ID.matcher(id).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid id format\"}");
+        }
         String cacheKey = "game:checklist:" + id;
         String data = gameCacheService.getOrFetch(cacheKey, TTL_24_HOURS, () -> gameChecklistService.getGameChecklist(id));
         return ResponseEntity.ok(data);

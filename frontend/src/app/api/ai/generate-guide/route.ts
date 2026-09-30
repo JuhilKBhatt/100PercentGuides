@@ -22,6 +22,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Input validation & length restrictions to prevent prompt injection and DoS
+    const cleanGameId = String(gameId).trim().slice(0, 50);
+    const cleanAchId = String(achievementId).trim().slice(0, 50);
+    const cleanGameTitle = typeof gameTitle === "string" ? gameTitle.trim().slice(0, 100) : "";
+    const cleanAchName = String(achievementName).trim().slice(0, 150);
+    const cleanAchDesc = typeof achievementDescription === "string" ? achievementDescription.trim().slice(0, 500) : "";
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(cleanGameId)) {
+      return NextResponse.json({ error: "Invalid gameId format." }, { status: 400 });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -33,9 +44,9 @@ export async function POST(req: NextRequest) {
     const prompt = `You are a master video game completionist and verified 100% achievement guide author.
 Create an accurate, authentic step-by-step completion checklist for this video game achievement:
 
-Game: ${gameTitle || "Game " + gameId}
-Achievement: ${achievementName}
-Official Description: ${achievementDescription || "Unlock the achievement"}
+Game: ${cleanGameTitle || "Game " + cleanGameId}
+Achievement: ${cleanAchName}
+Official Description: ${cleanAchDesc || "Unlock the achievement"}
 
 REQUIREMENTS FOR ACCURACY:
 1. Verify how this achievement is ACTUALLY unlocked in the game. Do not guess or hallucinate.
@@ -47,8 +58,8 @@ REQUIREMENTS FOR ACCURACY:
 OUTPUT FORMAT:
 Return ONLY valid JSON matching this exact structure:
 {
-  "title": "${achievementName} Checklist",
-  "subtitle": "Accurate step-by-step roadmap to unlock ${achievementName}",
+  "title": "${cleanAchName} Checklist",
+  "subtitle": "Accurate step-by-step roadmap to unlock ${cleanAchName}",
   "regions": [
     {
       "id": "region-slug",

@@ -1,25 +1,31 @@
-include:
-  - docker-compose.yml
-
 services:
-  frontend:
-    build:
-      context: ./frontend
-      target: production
-    ports:
-      - "3000:3000"
-    env_file:
-      - ./secrets/.env.prod
+  # Internal Redis cache (no host ports exposed; internal Docker network only)
+  redis:
+    image: redis:7-alpine
+    restart: always
 
   backend:
     build:
       context: ./backend
       target: production
     ports:
-      - "8080:8080"
+      # Restrict backend access strictly to localhost
+      - "127.0.0.1:8080:8080"
     env_file:
       - ./secrets/.env.prod
     depends_on:
       - redis
-      # DynamoDB local is typically replaced by the real AWS DynamoDB in prod,
-      # but we keep the depends_on redis here.
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+    ports:
+      # Restrict frontend to localhost (prevents attackers bypassing Cloudflare WAF via direct server IP)
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - ./secrets/.env.prod
+    depends_on:
+      - backend
+    restart: always

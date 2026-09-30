@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import AdCarousel from "@/components/AdCarousel";
 import BuyButton from "@/components/BuyButton";
 import JsonLd from "@/components/seo/JsonLd";
+import GameVisitTracker from "@/components/history/GameVisitTracker";
 import { getGameDetails, getGameAchievements, listGameGuides } from "@/lib/api";
 import AchievementsList from "@/components/achievement/AchievementsList";
 import { cleanGameDescription } from "@/utils/format";
@@ -124,6 +125,18 @@ export default async function GamePage({ params }: Props) {
       {/* Schema.org Structured Data */}
       <JsonLd data={gameSchema} />
       <JsonLd data={breadcrumbSchema} />
+
+      {/* Track User Visit to this Game */}
+      <GameVisitTracker
+        item={{
+          id: game.id,
+          url: `/game/${id}`,
+          name: game.name,
+          background_image: game.background_image,
+          released: game.released,
+          rating: game.rating,
+        }}
+      />
 
       {/* Hero Banner with Background Image */}
       <div 

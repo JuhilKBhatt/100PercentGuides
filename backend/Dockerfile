@@ -10,9 +10,11 @@ FROM base AS build
 COPY . .
 RUN ./mvnw clean package -DskipTests
 
-# Production stage
+# Production stage (runs securely as non-root user)
 FROM eclipse-temurin:17-jre-jammy AS production
 WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+RUN groupadd -r appgroup && useradd -r -g appgroup -d /app -s /sbin/nologin appuser
+COPY --from=build --chown=appuser:appgroup /app/target/*.jar app.jar
+USER appuser
 EXPOSE 8080
 CMD ["java", "-jar", "app.jar"]

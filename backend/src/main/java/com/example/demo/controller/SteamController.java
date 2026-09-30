@@ -13,6 +13,9 @@ import java.util.regex.Pattern;
 @RequestMapping("/api")
 public class SteamController {
 
+    private static final Pattern SAFE_ID = Pattern.compile("^[a-zA-Z0-9_-]{1,64}$");
+    private static final Pattern STEAM_ID64 = Pattern.compile("^\\d{17}$");
+
     private final SteamClientService steamClientService;
     private final RawgClientService rawgClientService;
 
@@ -27,6 +30,9 @@ public class SteamController {
     @GetMapping(value = "/games/{id}/steam", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getGameSteamMapping(@PathVariable("id") String id,
                                                       @RequestParam(value = "name", required = false) String name) {
+        if (!SAFE_ID.matcher(id).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid id format\"}");
+        }
         String resolvedName = name;
         if (resolvedName == null || resolvedName.isBlank()) {
             try {
@@ -47,6 +53,9 @@ public class SteamController {
      */
     @GetMapping(value = "/steam/app/{appId}/achievements", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getSteamAchievements(@PathVariable("appId") String appId) {
+        if (!SAFE_ID.matcher(appId).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid appId format\"}");
+        }
         String data = steamClientService.getSteamAchievements(appId);
         return ResponseEntity.ok(data);
     }
@@ -57,6 +66,9 @@ public class SteamController {
     @GetMapping(value = "/steam/player/{steamId}/achievements/{appId}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getPlayerAchievements(@PathVariable("steamId") String steamId,
                                                         @PathVariable("appId") String appId) {
+        if (!STEAM_ID64.matcher(steamId).matches() || !SAFE_ID.matcher(appId).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid steamId or appId format\"}");
+        }
         String data = steamClientService.getPlayerAchievements(steamId, appId);
         return ResponseEntity.ok(data);
     }
@@ -66,6 +78,9 @@ public class SteamController {
      */
     @GetMapping(value = "/steam/player/{steamId}/games", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getPlayerOwnedGames(@PathVariable("steamId") String steamId) {
+        if (!STEAM_ID64.matcher(steamId).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid steamId format\"}");
+        }
         String data = steamClientService.getOwnedGames(steamId);
         return ResponseEntity.ok(data);
     }
@@ -75,6 +90,9 @@ public class SteamController {
      */
     @GetMapping(value = "/steam/player/{steamId}/summary", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getPlayerSummary(@PathVariable("steamId") String steamId) {
+        if (!STEAM_ID64.matcher(steamId).matches()) {
+            return ResponseEntity.badRequest().body("{\"error\":\"Invalid steamId format\"}");
+        }
         String data = steamClientService.getPlayerSummary(steamId);
         return ResponseEntity.ok(data);
     }
@@ -84,6 +102,10 @@ public class SteamController {
      */
     @GetMapping(value = "/steam/resolve-vanity", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> resolveVanityUrl(@RequestParam("url") String url) {
+        String cleanUrl = url.trim();
+        if (cleanUrl.length() > 200) {
+            return ResponseEntity.badRequest().body("{\"error\":\"URL parameter exceeds maximum length\"}");
+        }
         String data = steamClientService.resolveVanityUrl(url);
         return ResponseEntity.ok(data);
     }

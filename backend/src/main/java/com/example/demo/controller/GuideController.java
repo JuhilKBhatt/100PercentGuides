@@ -1,21 +1,29 @@
 package com.example.demo.controller;
 
 import com.example.demo.service.GuideService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/games/{gameId}/guides")
 public class GuideController {
 
+    private static final Logger log = LoggerFactory.getLogger(GuideController.class);
+    private static final Pattern SAFE_IDENTIFIER = Pattern.compile("^[a-zA-Z0-9_-]{1,64}$");
+    private static final int MAX_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2 MB maximum guide payload
+
     private final GuideService guideService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public GuideController(GuideService guideService) {
         this.guideService = guideService;
@@ -25,7 +33,10 @@ public class GuideController {
      * Lists all guides for a game from DynamoDB.
      */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<List<Map<String, Object>>> listGuides(@PathVariable("gameId") String gameId) {
+    public ResponseEntity<?> listGuides(@PathVariable("gameId") String gameId) {
+        if (!isValidIdentifier(gameId)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid gameId format"));
+        }
         List<Map<String, Object>> guides = guideService.listGuidesForGame(gameId);
         return ResponseEntity.ok(guides);
     }
@@ -34,8 +45,11 @@ public class GuideController {
      * Retrieves a single guide with map locations from DynamoDB.
      */
     @GetMapping(value = "/{guideSlug}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> getGuide(@PathVariable("gameId") String gameId,
-                                           @PathVariable("guideSlug") String guideSlug) {
+    public ResponseEntity<?> getGuide(@PathVariable("gameId") String gameId,
+                                      @PathVariable("guideSlug") String guideSlug) {
+        if (!isValidIdentifier(gameId) || !isValidIdentifier(guideSlug)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid gameId or guideSlug format"));
+        }
         String guideJson = guideService.getGuide(gameId, guideSlug);
         if (guideJson == null) {
             return ResponseEntity.notFound().build();
@@ -49,12 +63,31 @@ public class GuideController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> createOrUpdateGuide(@PathVariable("gameId") String gameId,
                                                                    @RequestBody String payloadJson) {
-        String guideSlug = extractString(payloadJson, "guideSlug");
-        String title = extractString(payloadJson, "title");
-        int totalCount = extractInt(payloadJson, "totalCount");
+        if (!isValidIdentifier(gameId)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid gameId format"));
+        }
 
-        if (guideSlug == null || guideSlug.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "guideSlug is required"));
+        if (payloadJson == null || payloadJson.length() > MAX_PAYLOAD_BYTES) {
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .body(Map.of("error", "Payload exceeds maximum allowed size (2MB)"));
+        }
+
+        String guideSlug;
+        String title;
+        int totalCount = 0;
+
+        try {
+            JsonNode root = objectMapper.readTree(payloadJson);
+            guideSlug = root.path("guideSlug").asText(null);
+            title = root.path("title").asText(null);
+            totalCount = root.path("totalCount").asInt(0);
+        } catch (Exception e) {
+            log.warn("Invalid JSON submitted to createOrUpdateGuide: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", "Malformed JSON payload"));
+        }
+
+        if (guideSlug == null || guideSlug.isBlank() || !isValidIdentifier(guideSlug)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Valid guideSlug is required (alphanumeric, hyphens, underscores)"));
         }
 
         boolean saved = guideService.saveGuide(gameId, guideSlug, title != null ? title : guideSlug, totalCount, payloadJson);
@@ -77,17 +110,14 @@ public class GuideController {
     @DeleteMapping(value = "/{guideSlug}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> deleteGuide(@PathVariable("gameId") String gameId,
                                                            @PathVariable("guideSlug") String guideSlug) {
+        if (!isValidIdentifier(gameId) || !isValidIdentifier(guideSlug)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid gameId or guideSlug format"));
+        }
         boolean deleted = guideService.deleteGuide(gameId, guideSlug);
         return ResponseEntity.ok(Map.of("success", deleted, "guideSlug", guideSlug));
     }
 
-    private String extractString(String json, String key) {
-        Matcher m = Pattern.compile("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
-        return m.find() ? m.group(1) : null;
-    }
-
-    private int extractInt(String json, String key) {
-        Matcher m = Pattern.compile("\"" + key + "\"\\s*:\\s*(\\d+)").matcher(json);
-        return m.find() ? Integer.parseInt(m.group(1)) : 0;
+    private boolean isValidIdentifier(String s) {
+        return s != null && SAFE_IDENTIFIER.matcher(s).matches();
     }
 }

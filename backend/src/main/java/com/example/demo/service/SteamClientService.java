@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.JsonNode;
@@ -40,7 +41,12 @@ public class SteamClientService {
     private static final long MIN_REQUEST_INTERVAL_MS = 200; // max 5 calls/sec
 
     public SteamClientService(GameCacheService gameCacheService, RawgClientService rawgClientService) {
-        this.restClient = RestClient.builder().build();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+        this.restClient = RestClient.builder()
+                .requestFactory(requestFactory)
+                .build();
         this.gameCacheService = gameCacheService;
         this.rawgClientService = rawgClientService;
     }

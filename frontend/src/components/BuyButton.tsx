@@ -37,12 +37,12 @@ export default function BuyButton({ gameName, buyUrl, className = "" }: BuyButto
       </div>
 
       {/* Australian Consumer Law (ACL) Compliant Affiliate Disclosure */}
-      <div className="pt-2 border-t border-zinc-900 flex items-start gap-1.5 text-[11px] text-zinc-500 leading-relaxed">
+      {/*<div className="pt-2 border-t border-zinc-900 flex items-start gap-1.5 text-[11px] text-zinc-500 leading-relaxed">
         <Info size={13} className="shrink-0 mt-0.5 text-zinc-400" />
         <span>
           <strong className="text-zinc-400 font-medium">Affiliate Disclosure:</strong> When you purchase through links on our site, we may earn an affiliate commission from authorized storefronts at no additional cost to you. Purchases are completed on external third-party merchant platforms subject to their respective terms and consumer guarantees.
         </span>
-      </div>
+      </div>*/}
     </div>
   );
 }
