@@ -7,7 +7,7 @@ services:
       context: ./frontend
       target: development
     ports:
-      - "3000:3000"
+      - "3005:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -34,3 +34,18 @@ services:
     depends_on:
       - redis
       - dynamodb-local
+
+  # Automated Background Seeder for Top 100 Games (Warms Cache + Seeds Guides)
+  seeder:
+    image: python:3.11-alpine
+    stop_grace_period: 30s
+    restart: on-failure:3
+    depends_on:
+      - backend
+    env_file:
+      - ./secrets/.env.dev
+    volumes:
+      - ./scripts:/app/scripts
+      - ./secrets:/app/secrets:ro
+    working_dir: /app
+    command: python3 -u scripts/seed_top_games.py --count 500 --ach-games-limit 100 --backend http://backend:8080

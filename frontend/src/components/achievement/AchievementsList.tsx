@@ -129,51 +129,104 @@ export default function AchievementsList({
     fetchGuides();
   }, [fetchGuides]);
 
-  // Map achievements to guides
-  const achievementGuideMap = useMemo(() => {
-    const map = new Map<number, GuideMeta>();
+  // Canonical string helper to strip non-alphanumeric characters and whitespace for fuzzy matching
+  const toCanonical = (str: string = "") =>
+    str.toLowerCase().replace(/checklist$/i, "").replace(/[^a-z0-9]/g, "");
 
-    for (const guide of guides) {
-      // 1. Check direct achievementId
-      if (guide.achievementId) {
-        const idNum = Number(guide.achievementId);
-        if (!isNaN(idNum)) {
-          map.set(idNum, guide);
+  // Robust guide matching helper across ID, slug, Steam API name, and title
+  const matchGuideForAchievement = useCallback((ach: Achievement, guideList: GuideMeta[]): GuideMeta | undefined => {
+    if (!ach || !guideList || guideList.length === 0) return undefined;
+
+    const achIdNum = Number(ach.id);
+    const achIdStr = String(ach.id).trim();
+    const achApi = ach.steamApiName?.trim().toLowerCase();
+    const achCanon = toCanonical(ach.name);
+
+    for (const guide of guideList) {
+      if (!guide) continue;
+
+      // 1. Direct achievementId match (number or string)
+      if (guide.achievementId !== undefined && guide.achievementId !== null) {
+        const gAchIdStr = String(guide.achievementId).trim();
+        if (gAchIdStr === achIdStr || (!isNaN(achIdNum) && Number(guide.achievementId) === achIdNum)) {
+          return guide;
         }
       }
 
-      // 2. Check multiple achievementIds array
+      // 2. Multiple achievementIds array match
       if (guide.achievementIds && Array.isArray(guide.achievementIds)) {
         for (const rawId of guide.achievementIds) {
-          const idNum = Number(rawId);
-          if (!isNaN(idNum)) {
-            map.set(idNum, guide);
+          const rawStr = String(rawId).trim();
+          if (rawStr === achIdStr || (!isNaN(achIdNum) && Number(rawId) === achIdNum)) {
+            return guide;
           }
         }
       }
 
-      // 3. Check guideSlug match: ach-12345
-      const slugMatch = guide.guideSlug.match(/^ach-(\d+)$/);
-      if (slugMatch) {
-        const idNum = Number(slugMatch[1]);
-        map.set(idNum, guide);
-      }
-
-      // 4. Fallback: match by title similarity
-      for (const ach of achievements) {
+      // 3. Slug match: ach-12345 or ach-STEAM_API_NAME
+      if (guide.guideSlug) {
+        const slugPrefixRemoved = guide.guideSlug.replace(/^ach-/, "").trim().toLowerCase();
         if (
-          guide.title.toLowerCase().includes(ach.name.toLowerCase()) ||
-          ach.name.toLowerCase().includes(guide.title.toLowerCase())
+          slugPrefixRemoved === achIdStr.toLowerCase() ||
+          (!isNaN(achIdNum) && Number(slugPrefixRemoved) === achIdNum) ||
+          (achApi && slugPrefixRemoved === achApi)
         ) {
-          if (!map.has(ach.id)) {
-            map.set(ach.id, guide);
-          }
+          return guide;
         }
+      }
+
+      // 4. Canonical title match (handles ellipses, em-dashes, hyphens, punctuation differences)
+      const guideCanon = toCanonical(guide.title);
+      if (
+        achCanon &&
+        guideCanon &&
+        (guideCanon === achCanon ||
+         guideCanon.includes(achCanon) ||
+         achCanon.includes(guideCanon))
+      ) {
+        return guide;
       }
     }
 
+    return undefined;
+  }, []);
+
+  const getAttachedGuide = useCallback((ach: Achievement): GuideMeta | undefined => {
+    return matchGuideForAchievement(ach, guides);
+  }, [guides, matchGuideForAchievement]);
+
+  // Map achievements to guides
+  const achievementGuideMap = useMemo(() => {
+    const map = new Map<number, GuideMeta>();
+    for (const ach of achievements) {
+      const guide = matchGuideForAchievement(ach, guides);
+      if (guide) {
+        map.set(ach.id, guide);
+      }
+    }
     return map;
-  }, [guides, achievements]);
+  }, [achievements, guides, matchGuideForAchievement]);
+
+  // Periodic background sync while there are achievements without guides
+  useEffect(() => {
+    const hasUnguided = achievements.some((ach) => !matchGuideForAchievement(ach, guides));
+    if (!hasUnguided) return;
+
+    // Fast-poll every 3.5 seconds to catch guides saved by seeder or auto-gen
+    const interval = setInterval(() => {
+      fetchGuides();
+    }, 3500);
+
+    const handleFocus = () => {
+      fetchGuides();
+    };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [achievements, guides, matchGuideForAchievement, fetchGuides]);
 
   // Load progress for each guide from localStorage
   const refreshChecklistProgress = useCallback(() => {
@@ -181,7 +234,7 @@ export default function AchievementsList({
     const nextProgress: Record<number, { completed: number; total: number }> = {};
 
     achievements.forEach((ach) => {
-      const guideMeta = achievementGuideMap.get(ach.id);
+      const guideMeta = achievementGuideMap.get(ach.id) || getAttachedGuide(ach);
       if (guideMeta) {
         const storageKey = `100pg_guide_${gameId}_${guideMeta.guideSlug}`;
         try {
@@ -210,21 +263,42 @@ export default function AchievementsList({
   useEffect(() => {
     if (!achievements.length || autoGenStartedRef.current) return;
 
-    const unguided = achievements.filter((a) => !achievementGuideMap.has(a.id));
-    if (unguided.length === 0) return;
-
     autoGenStartedRef.current = true;
-    setIsAutoGenerating(true);
-    setAutoGenProgress({ done: 0, total: unguided.length });
 
     const runAutoGenerator = async () => {
+      // 1. Pre-fetch fresh guide list directly to ensure we have the latest guides from DynamoDB/Redis
+      let currentGuides: GuideMeta[] = initialGuides;
+      try {
+        const fresh = await listGameGuides(gameId);
+        if (fresh && fresh.length > 0) {
+          currentGuides = fresh;
+          setGuides(fresh);
+        }
+      } catch (e) {
+        console.warn("[Auto-Gen Notice] Could not pre-fetch fresh guides:", e);
+      }
+
+      const unguided = achievements.filter((a) => !matchGuideForAchievement(a, currentGuides));
+      if (unguided.length === 0) {
+        setIsAutoGenerating(false);
+        setCurrentGeneratingName(null);
+        setAutoGenProgress(null);
+        return;
+      }
+
+      const totalGameAchievements = achievements.length;
+      const alreadyCompleted = totalGameAchievements - unguided.length;
+
+      setIsAutoGenerating(true);
+      setAutoGenProgress({ done: alreadyCompleted, total: totalGameAchievements });
+
       for (let i = 0; i < unguided.length; i++) {
         const targetAch = unguided[i];
         setCurrentGeneratingName(targetAch.name);
-        setAutoGenProgress({ done: i, total: unguided.length });
+        setAutoGenProgress({ done: alreadyCompleted + i, total: totalGameAchievements });
 
         try {
-          await fetch("/api/ai/generate-guide", {
+          const res = await fetch("/api/ai/generate-guide", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -235,6 +309,24 @@ export default function AchievementsList({
               achievementDescription: targetAch.description,
             }),
           });
+          if (res.ok) {
+            const newGuideData = await res.json();
+            setGuides((prev) => {
+              if (prev.some((g) => g.guideSlug === newGuideData.guideSlug)) return prev;
+              return [
+                ...prev,
+                {
+                  gameId: String(gameId),
+                  guideSlug: newGuideData.guideSlug,
+                  title: newGuideData.title || `${targetAch.name} Checklist`,
+                  totalCount: newGuideData.totalCount || 1,
+                  achievementId: String(targetAch.id),
+                  hasMap: Boolean(newGuideData.maps?.length > 0 && newGuideData.maps[0]?.imageUrl),
+                  updatedAt: Date.now(),
+                },
+              ];
+            });
+          }
           await fetchGuides();
           refreshChecklistProgress();
         } catch (e) {
@@ -253,11 +345,11 @@ export default function AchievementsList({
     };
 
     runAutoGenerator();
-  }, [achievements, achievementGuideMap, gameId, gameName, fetchGuides, refreshChecklistProgress]);
+  }, [achievements, gameId, gameName, fetchGuides, refreshChecklistProgress, initialGuides]);
 
   // Open Drawer to view checklist
   const handleOpenDrawer = (ach: Achievement) => {
-    const guideMeta = achievementGuideMap.get(ach.id) || null;
+    const guideMeta = achievementGuideMap.get(ach.id) || getAttachedGuide(ach) || null;
     setSelectedAchievementForDrawer(ach);
     setSelectedGuideForDrawer(guideMeta);
     setIsDrawerOpen(true);
@@ -739,7 +831,7 @@ export default function AchievementsList({
             const tierInfo = getAchievementTierInfo(ach.percent);
             const { isCompleted, unlockTime } = getAchievementStatus(ach);
             const isMasked = ach.hidden && !revealSpoilers && !isCompleted;
-            const attachedGuide = achievementGuideMap.get(ach.id);
+            const attachedGuide = achievementGuideMap.get(ach.id) || getAttachedGuide(ach);
             const progress = checklistProgress[ach.id];
 
             return (

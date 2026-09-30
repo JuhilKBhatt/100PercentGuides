@@ -14,6 +14,9 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://100percentguides.com";
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

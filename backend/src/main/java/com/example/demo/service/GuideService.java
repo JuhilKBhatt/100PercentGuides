@@ -124,44 +124,97 @@ public class GuideService {
                     .build());
 
             for (Map<String, AttributeValue> item : response.items()) {
-                Map<String, Object> meta = new HashMap<>();
-                meta.put("gameId", item.get("gameId").s());
-                meta.put("guideSlug", item.get("guideSlug").s());
-                meta.put("title", item.containsKey("title") ? item.get("title").s() : item.get("guideSlug").s());
-                meta.put("totalCount", item.containsKey("totalCount") ? Integer.parseInt(item.get("totalCount").n()) : 0);
-                meta.put("updatedAt", item.containsKey("updatedAt") ? Long.parseLong(item.get("updatedAt").n()) : 0L);
+                list.add(parseItemToMeta(item));
+            }
 
-                if (item.containsKey("achievementId")) {
-                    meta.put("achievementId", item.get("achievementId").s());
-                }
-                boolean hasMap = false;
-                if (item.containsKey("hasMap")) {
-                    hasMap = Boolean.parseBoolean(item.get("hasMap").s());
-                } else if (item.containsKey("payload")) {
-                    hasMap = checkHasMap(item.get("payload").s());
-                }
-                meta.put("hasMap", hasMap);
-
-                if (item.containsKey("payload")) {
-                    String payload = item.get("payload").s();
-                    if (!meta.containsKey("achievementId")) {
-                        String payloadAchId = extractAchievementId(payload);
-                        if (payloadAchId != null) {
-                            meta.put("achievementId", payloadAchId);
+            // Self-healing fallback: If DynamoDB is empty, check Redis keys (e.g. after DynamoDB restart)
+            if (list.isEmpty()) {
+                try {
+                    Set<String> redisKeys = redisTemplate.keys("guide:" + gameId + ":*");
+                    if (redisKeys != null && !redisKeys.isEmpty()) {
+                        log.info("Self-healing: Found {} guides for gameId={} in Redis. Restoring to DynamoDB...", redisKeys.size(), gameId);
+                        for (String rk : redisKeys) {
+                            String payload = redisTemplate.opsForValue().get(rk);
+                            if (payload != null && !payload.isBlank()) {
+                                String[] parts = rk.split(":", 3);
+                                if (parts.length >= 3) {
+                                    String slug = parts[2];
+                                    String title = extractTitle(payload, slug);
+                                    int count = extractTotalCount(payload);
+                                    saveGuide(gameId, slug, title, count, payload);
+                                }
+                            }
+                        }
+                        QueryResponse retryRes = dynamoDbClient.query(QueryRequest.builder()
+                                .tableName(DynamoDbConfig.GUIDES_TABLE)
+                                .keyConditionExpression("gameId = :gid")
+                                .expressionAttributeValues(expressionValues)
+                                .build());
+                        for (Map<String, AttributeValue> item : retryRes.items()) {
+                            list.add(parseItemToMeta(item));
                         }
                     }
-                    List<String> allAchIds = extractAllAchievementIds(payload);
-                    if (!allAchIds.isEmpty()) {
-                        meta.put("achievementIds", allAchIds);
-                    }
+                } catch (Exception ex) {
+                    log.warn("Redis guide recovery failed for game {}: {}", gameId, ex.getMessage());
                 }
-
-                list.add(meta);
             }
         } catch (Exception ex) {
             log.warn("Failed to list guides from DynamoDB for game {}: {}", gameId, ex.getMessage());
         }
         return list;
+    }
+
+    private Map<String, Object> parseItemToMeta(Map<String, AttributeValue> item) {
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("gameId", item.get("gameId").s());
+        meta.put("guideSlug", item.get("guideSlug").s());
+        meta.put("title", item.containsKey("title") ? item.get("title").s() : item.get("guideSlug").s());
+        meta.put("totalCount", item.containsKey("totalCount") ? Integer.parseInt(item.get("totalCount").n()) : 0);
+        meta.put("updatedAt", item.containsKey("updatedAt") ? Long.parseLong(item.get("updatedAt").n()) : 0L);
+
+        if (item.containsKey("achievementId")) {
+            meta.put("achievementId", item.get("achievementId").s());
+        }
+        boolean hasMap = false;
+        if (item.containsKey("hasMap")) {
+            hasMap = Boolean.parseBoolean(item.get("hasMap").s());
+        } else if (item.containsKey("payload")) {
+            hasMap = checkHasMap(item.get("payload").s());
+        }
+        meta.put("hasMap", hasMap);
+
+        if (item.containsKey("payload")) {
+            String payload = item.get("payload").s();
+            if (!meta.containsKey("achievementId")) {
+                String payloadAchId = extractAchievementId(payload);
+                if (payloadAchId != null) {
+                    meta.put("achievementId", payloadAchId);
+                }
+            }
+            List<String> allAchIds = extractAllAchievementIds(payload);
+            if (!allAchIds.isEmpty()) {
+                meta.put("achievementIds", allAchIds);
+            }
+        }
+        return meta;
+    }
+
+    private String extractTitle(String json, String defaultTitle) {
+        if (json == null) return defaultTitle;
+        Matcher m = Pattern.compile("\"title\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        if (m.find()) return m.group(1);
+        return defaultTitle;
+    }
+
+    private int extractTotalCount(String json) {
+        if (json == null) return 0;
+        Matcher m = Pattern.compile("\"totalCount\"\\s*:\\s*(\\d+)").matcher(json);
+        if (m.find()) {
+            try {
+                return Integer.parseInt(m.group(1));
+            } catch (Exception ignored) {}
+        }
+        return 0;
     }
 
     public boolean deleteGuide(String gameId, String guideSlug) {

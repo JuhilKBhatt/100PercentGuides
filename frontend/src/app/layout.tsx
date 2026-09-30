@@ -1,3 +1,4 @@
+import Script from "next/script";
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils";
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://100percentguides.com";
+const adsenseClientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID || "ca-pub-6476461912363006";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -87,6 +89,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("dark bg-black font-sans", geist.variable)}>
       <head>
+        <meta name="google-adsense-account" content={adsenseClientId} />
         <JsonLd data={websiteSchema} />
         <JsonLd data={orgSchema} />
       </head>
@@ -98,6 +101,14 @@ export default function RootLayout({
           </main>
           <Footer />
           <CookieBanner />
+          {/* Google AdSense Script */}
+          <Script
+            id="google-adsense"
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClientId}`}
+            crossOrigin="anonymous"
+            strategy="afterInteractive"
+          />
         </Providers>
       </body>
     </html>

@@ -4,11 +4,18 @@ import { NextRequest, NextResponse } from "next/server";
 const MODEL_POOL = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-flash-lite-latest",
-  "gemma-4-31b-it",
+  "gemini-3.8-flash",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
+  "gemini-2.5-flash",
+  "gemini-3-flash",
+  "gemma-4-31b-it"
 ];
 
 let roundRobinCounter = 0;
+
+// Deduplication map to prevent parallel duplicate calls for the same achievement
+const inFlightRequests = new Map<string, Promise<any>>();
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,6 +38,35 @@ export async function POST(req: NextRequest) {
 
     if (!/^[a-zA-Z0-9_-]+$/.test(cleanGameId)) {
       return NextResponse.json({ error: "Invalid gameId format." }, { status: 400 });
+    }
+
+    const guideSlug = `ach-${cleanAchId}`;
+    const backendUrl = process.env.BACKEND_URL || "http://backend:8080";
+
+    // 1. Idempotency Check: If guide already exists in DynamoDB/Redis, return immediately
+    try {
+      const existingRes = await fetch(`${backendUrl}/api/games/${cleanGameId}/guides/${guideSlug}`, {
+        cache: "no-store",
+      });
+      if (existingRes.ok) {
+        const existingData = await existingRes.json();
+        if (existingData && (existingData.regions?.length > 0 || existingData.title)) {
+          return NextResponse.json({
+            ...existingData,
+            alreadyExisted: true,
+            modelUsed: existingData.generatedByModel || "cached",
+          });
+        }
+      }
+    } catch (checkErr) {
+      console.warn(`[generate-guide] Idempotency check for ${guideSlug} skipped:`, checkErr);
+    }
+
+    // 2. In-flight request deduplication: If already generating, await that promise
+    const dedupeKey = `${cleanGameId}:${cleanAchId}`;
+    if (inFlightRequests.has(dedupeKey)) {
+      const existingResult = await inFlightRequests.get(dedupeKey);
+      return NextResponse.json(existingResult);
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -81,130 +117,133 @@ Return ONLY valid JSON matching this exact structure:
 Do NOT wrap the response in markdown blocks. Output pure JSON only.`;
 
     // Multi-Model Pool Execution with Automatic Fallback
-    const startIndex = preferredModel 
-      ? MODEL_POOL.indexOf(preferredModel) !== -1 ? MODEL_POOL.indexOf(preferredModel) : 0
-      : (roundRobinCounter++) % MODEL_POOL.length;
+    const executionPromise = (async () => {
+      const startIndex = preferredModel 
+        ? MODEL_POOL.indexOf(preferredModel) !== -1 ? MODEL_POOL.indexOf(preferredModel) : 0
+        : (roundRobinCounter++) % MODEL_POOL.length;
 
-    let successfulRawText = "";
-    let usedModel = "";
-    let lastError = "";
+      let successfulRawText = "";
+      let usedModel = "";
+      let lastError = "";
 
-    for (let i = 0; i < MODEL_POOL.length; i++) {
-      const modelCandidate = MODEL_POOL[(startIndex + i) % MODEL_POOL.length];
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelCandidate}:generateContent?key=${apiKey}`;
+      for (let i = 0; i < MODEL_POOL.length; i++) {
+        const modelCandidate = MODEL_POOL[(startIndex + i) % MODEL_POOL.length];
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelCandidate}:generateContent?key=${apiKey}`;
 
+        try {
+          const geminiRes = await fetch(geminiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: "application/json",
+              },
+            }),
+          });
+
+          if (geminiRes.ok) {
+            const geminiData = await geminiRes.json();
+            const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (rawText && rawText.trim().length > 0) {
+              successfulRawText = rawText;
+              usedModel = modelCandidate;
+              break;
+            }
+          } else {
+            const errText = await geminiRes.text();
+            console.warn(`[Multi-Model Router] Model ${modelCandidate} failed (${geminiRes.status}): ${errText.slice(0, 100)}. Falling back to next model...`);
+            lastError = `${modelCandidate} (${geminiRes.status})`;
+          }
+        } catch (err: any) {
+          console.warn(`[Multi-Model Router] Network error with ${modelCandidate}:`, err.message);
+          lastError = err.message;
+        }
+      }
+
+      if (!successfulRawText) {
+        throw new Error(`All models in the pool were exhausted or rate-limited. Last error: ${lastError}`);
+      }
+
+      let parsedGuide: any;
       try {
-        const geminiRes = await fetch(geminiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseMimeType: "application/json",
-            },
-          }),
+        parsedGuide = JSON.parse(successfulRawText);
+      } catch (e) {
+        throw new Error("Failed to parse JSON response from AI model pool.");
+      }
+
+      // Standardize schema
+      let totalCount = 0;
+      let itemIdCounter = 1;
+      const cleanRegions = (parsedGuide.regions || []).map((reg: any) => {
+        const regId = reg.id || (reg.name || "General").toLowerCase().replace(/\s+/g, "-");
+        const regName = reg.name || "General";
+        const items = (reg.items || []).map((it: any) => {
+          const itemObj = {
+            id: itemIdCounter++,
+            name: it.name || `Step ${itemIdCounter}`,
+            region: it.region || regName,
+            locationText: it.locationText || "See details",
+            details: it.details || "",
+            x: typeof it.x === "number" ? it.x : 50.0,
+            y: typeof it.y === "number" ? it.y : 50.0,
+          };
+          totalCount++;
+          return itemObj;
         });
 
-        if (geminiRes.ok) {
-          const geminiData = await geminiRes.json();
-          const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawText && rawText.trim().length > 0) {
-            successfulRawText = rawText;
-            usedModel = modelCandidate;
-            break;
-          }
-        } else {
-          const errText = await geminiRes.text();
-          console.warn(`[Multi-Model Router] Model ${modelCandidate} failed (${geminiRes.status}): ${errText.slice(0, 100)}. Falling back to next model...`);
-          lastError = `${modelCandidate} (${geminiRes.status})`;
-        }
-      } catch (err: any) {
-        console.warn(`[Multi-Model Router] Network error with ${modelCandidate}:`, err.message);
-        lastError = err.message;
-      }
-    }
-
-    if (!successfulRawText) {
-      return NextResponse.json(
-        { error: `All models in the pool were exhausted or rate-limited. Last error: ${lastError}` },
-        { status: 429 }
-      );
-    }
-
-    let parsedGuide: any;
-    try {
-      parsedGuide = JSON.parse(successfulRawText);
-    } catch (e) {
-      return NextResponse.json(
-        { error: "Failed to parse JSON response from AI model pool." },
-        { status: 500 }
-      );
-    }
-
-    // Standardize schema
-    const guideSlug = `ach-${achievementId}`;
-    let totalCount = 0;
-    let itemIdCounter = 1;
-    const cleanRegions = (parsedGuide.regions || []).map((reg: any) => {
-      const regId = reg.id || (reg.name || "General").toLowerCase().replace(/\s+/g, "-");
-      const regName = reg.name || "General";
-      const items = (reg.items || []).map((it: any) => {
-        const itemObj = {
-          id: itemIdCounter++,
-          name: it.name || `Step ${itemIdCounter}`,
-          region: it.region || regName,
-          locationText: it.locationText || "See details",
-          details: it.details || "",
-          x: typeof it.x === "number" ? it.x : 50.0,
-          y: typeof it.y === "number" ? it.y : 50.0,
+        return {
+          id: regId,
+          name: regName,
+          itemCount: items.length,
+          items,
         };
-        totalCount++;
-        return itemObj;
       });
 
-      return {
-        id: regId,
-        name: regName,
-        itemCount: items.length,
-        items,
+      const fullGuide = {
+        gameId: String(cleanGameId),
+        gameSlug: (cleanGameTitle || "game").toLowerCase().replace(/\s+/g, "-"),
+        guideSlug,
+        title: parsedGuide.title || `${cleanAchName} Checklist`,
+        subtitle: parsedGuide.subtitle || cleanAchDesc || "",
+        totalCount: totalCount > 0 ? totalCount : 1,
+        requiredForCompletion: totalCount > 0 ? totalCount : 1,
+        achievementId: String(cleanAchId),
+        generatedByModel: usedModel,
+        relatedAchievements: [
+          {
+            id: Number(cleanAchId),
+            name: cleanAchName,
+            description: cleanAchDesc || "",
+          },
+        ],
+        maps: [
+          {
+            id: "main-map",
+            name: `${cleanGameTitle || "Game"} Map`,
+          },
+        ],
+        regions: cleanRegions,
       };
-    });
 
-    const fullGuide = {
-      gameId: String(gameId),
-      gameSlug: (gameTitle || "game").toLowerCase().replace(/\s+/g, "-"),
-      guideSlug,
-      title: parsedGuide.title || `${achievementName} Checklist`,
-      subtitle: parsedGuide.subtitle || achievementDescription || "",
-      totalCount: totalCount > 0 ? totalCount : 1,
-      requiredForCompletion: totalCount > 0 ? totalCount : 1,
-      achievementId: String(achievementId),
-      generatedByModel: usedModel,
-      relatedAchievements: [
-        {
-          id: Number(achievementId),
-          name: achievementName,
-          description: achievementDescription || "",
-        },
-      ],
-      maps: [
-        {
-          id: "main-map",
-          name: `${gameTitle || "Game"} Map`,
-        },
-      ],
-      regions: cleanRegions,
-    };
+      // Save directly to the Spring Boot backend -> DynamoDB & Redis
+      await fetch(`${backendUrl}/api/games/${cleanGameId}/guides`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fullGuide),
+      });
 
-    // Save directly to the Spring Boot backend -> DynamoDB & Redis
-    const backendUrl = process.env.BACKEND_URL || "http://backend:8080";
-    await fetch(`${backendUrl}/api/games/${gameId}/guides`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(fullGuide),
-    });
+      return { ...fullGuide, modelUsed: usedModel };
+    })();
 
-    return NextResponse.json({ ...fullGuide, modelUsed: usedModel });
+    inFlightRequests.set(dedupeKey, executionPromise);
+
+    try {
+      const result = await executionPromise;
+      return NextResponse.json(result);
+    } finally {
+      inFlightRequests.delete(dedupeKey);
+    }
   } catch (error: any) {
     console.error("[generate-guide route error]", error);
     return NextResponse.json(

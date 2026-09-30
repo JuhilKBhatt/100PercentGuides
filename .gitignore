@@ -93,3 +93,4 @@ dist/
 nbdist/
 .nb-gradle/
 AGENTS.md
+scripts/top_100_progress.json

@@ -3,6 +3,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_prod_data:/data
 
   # Backend Spring Boot service (no host ports exposed; frontend communicates internally via http://backend:8080)
   backend:
@@ -22,9 +25,27 @@ services:
       target: production
     ports:
       # Map an unused host port (e.g. 3005) to container port 3000 to avoid conflicting with existing sites on port 3000
-      - "127.0.0.1:3005:3000"
+      - "3005:3000"
     env_file:
       - ./secrets/.env.prod
     depends_on:
       - backend
     restart: always
+
+  # Automated Background Seeder for Top 100 Games (Warms Cache + Seeds Guides)
+  seeder:
+    image: python:3.11-alpine
+    stop_grace_period: 30s
+    restart: on-failure:5
+    depends_on:
+      - backend
+    env_file:
+      - ./secrets/.env.prod
+    volumes:
+      - ./scripts:/app/scripts
+      - ./secrets:/app/secrets:ro
+    working_dir: /app
+    command: python3 -u scripts/seed_top_games.py --count 500 --ach-games-limit 100 --backend http://backend:8080
+
+volumes:
+  redis_prod_data:
