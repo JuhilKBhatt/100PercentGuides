@@ -4,26 +4,25 @@ services:
     image: redis:7-alpine
     restart: always
 
+  # Backend Spring Boot service (no host ports exposed; frontend communicates internally via http://backend:8080)
   backend:
     build:
       context: ./backend
       target: production
-    ports:
-      # Restrict backend access strictly to localhost
-      - "127.0.0.1:8080:8080"
     env_file:
       - ./secrets/.env.prod
     depends_on:
       - redis
     restart: always
 
+  # Frontend Next.js service
   frontend:
     build:
       context: ./frontend
       target: production
     ports:
-      # Restrict frontend to localhost (prevents attackers bypassing Cloudflare WAF via direct server IP)
-      - "127.0.0.1:3000:3000"
+      # Map an unused host port (e.g. 3005) to container port 3000 to avoid conflicting with existing sites on port 3000
+      - "127.0.0.1:3005:3000"
     env_file:
       - ./secrets/.env.prod
     depends_on:
