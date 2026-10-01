@@ -14,14 +14,50 @@ import urllib.request
 import ssl
 from pathlib import Path
 
-MODEL_POOL = [
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-lite-latest",
-    "gemini-3-flash-preview",
-    "gemini-3.5-flash",
-    "gemini-3.6-flash"
-]
+def load_model_pool():
+    val = os.environ.get("MODEL_POOL") or os.environ.get("GEMINI_MODEL_POOL")
+    if not val:
+        search_paths = [
+            Path("secrets/.env.dev"),
+            Path("../secrets/.env.dev"),
+            Path("secrets/.env.prod"),
+            Path("../secrets/.env.prod"),
+        ]
+        for p in search_paths:
+            if p.exists():
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("MODEL_POOL=") or line.startswith("GEMINI_MODEL_POOL="):
+                            val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            break
+            if val:
+                break
+
+    if val:
+        val = val.strip()
+        if val.startswith("[") and val.endswith("]"):
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    return [str(m).strip() for m in parsed if str(m).strip()]
+            except Exception:
+                pass
+        models = [m.strip().strip('"').strip("'") for m in val.split(",") if m.strip()]
+        if models:
+            return models
+
+    return [
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash",
+        "gemini-3.6-flash",
+        "gemma-4-31b-it"
+    ]
+
+MODEL_POOL = load_model_pool()
 
 def load_gemini_key():
     key = os.environ.get("GEMINI_API_KEY")
@@ -42,6 +78,25 @@ def load_gemini_key():
                         return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
 
+def load_groq_key():
+    key = os.environ.get("GROQ_API_KEY")
+    if key:
+        return key
+    
+    search_paths = [
+        Path("secrets/.env.dev"),
+        Path("../secrets/.env.dev"),
+        Path("secrets/.env.prod"),
+        Path("../secrets/.env.prod"),
+    ]
+    for p in search_paths:
+        if p.exists():
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("GROQ_API_KEY="):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
 def fetch_json(url):
     ctx = ssl._create_unverified_context()
     req = urllib.request.Request(url, headers={"User-Agent": "100PercentGuides-AutoPilot/1.0"})
@@ -59,7 +114,7 @@ def post_json(url, data):
     with urllib.request.urlopen(req, context=ctx) as res:
         return json.loads(res.read().decode("utf-8"))
 
-def generate_achievement_guide(api_key, game_name, game_id, achievement, model_idx=0):
+def generate_achievement_guide(api_key, game_name, game_id, achievement, model_idx=0, groq_key=None):
     ach_id = achievement.get("id")
     ach_name = achievement.get("name", "Unknown Achievement")
     ach_desc = achievement.get("description", "")
@@ -138,8 +193,38 @@ Do NOT wrap the response in markdown blocks. Output pure JSON only.
             # Fall back to next model in pool
             continue
 
+    # Groq failover backup
+    if not successful_text and groq_key:
+        groq_models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+        for gm in groq_models:
+            try:
+                groq_payload = {
+                    "model": gm,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.2
+                }
+                groq_req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=json.dumps(groq_payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "100PercentGuides/1.0"
+                    }
+                )
+                with urllib.request.urlopen(groq_req, context=ctx, timeout=25) as gres:
+                    gdata = json.loads(gres.read().decode("utf-8"))
+                    gtext = gdata.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if gtext and gtext.strip():
+                        successful_text = gtext
+                        used_model = f"groq:{gm}"
+                        break
+            except Exception:
+                continue
+
     if not successful_text:
-        raise RuntimeError("All models in the pool were exhausted or unavailable.")
+        raise RuntimeError("All Google AI Studio and Groq models were exhausted or unavailable.")
 
     guide_json = json.loads(successful_text)
 
@@ -210,8 +295,9 @@ def main():
     args = parser.parse_args()
 
     api_key = load_gemini_key()
-    if not api_key:
-        print("ERROR: GEMINI_API_KEY not found in environment or secrets/.env.dev")
+    groq_key = load_groq_key()
+    if not api_key and not groq_key:
+        print("ERROR: Neither GEMINI_API_KEY nor GROQ_API_KEY found in environment or secrets")
         sys.exit(1)
 
     print("=====================================================")
@@ -283,7 +369,7 @@ def main():
 
         start_time = time.time()
         try:
-            guide, used_model = generate_achievement_guide(api_key, game_name, args.game_id, ach, model_idx=(idx - 1))
+            guide, used_model = generate_achievement_guide(api_key, game_name, args.game_id, ach, model_idx=(idx - 1), groq_key=groq_key)
             
             # Save to Spring Boot backend -> DynamoDB
             post_url = f"{args.backend}/api/games/{args.game_id}/guides"

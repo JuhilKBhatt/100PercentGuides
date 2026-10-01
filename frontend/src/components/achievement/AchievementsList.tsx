@@ -498,9 +498,57 @@ export default function AchievementsList({
     setCreatorModalOpen(true);
   };
 
+  // Synchronize drawer guide whenever guides list updates
+  useEffect(() => {
+    if (isDrawerOpen && selectedAchievementForDrawer) {
+      const updatedGuide =
+        matchGuideForAchievement(selectedAchievementForDrawer, guides) ||
+        getAttachedGuide(selectedAchievementForDrawer);
+      if (updatedGuide && updatedGuide.guideSlug !== selectedGuideForDrawer?.guideSlug) {
+        setSelectedGuideForDrawer(updatedGuide);
+      }
+    }
+  }, [guides, isDrawerOpen, selectedAchievementForDrawer, matchGuideForAchievement, getAttachedGuide, selectedGuideForDrawer]);
+
+  const handleDrawerGuideCreated = useCallback((newGuide: CollectibleGuide) => {
+    if (!newGuide || !newGuide.guideSlug) return;
+    const meta: GuideMeta = {
+      gameId: String(gameId),
+      guideSlug: newGuide.guideSlug,
+      title: newGuide.title,
+      subtitle: newGuide.subtitle,
+      totalCount: newGuide.totalCount,
+      achievementId: String(newGuide.achievementId || ""),
+      achievementIds: [String(newGuide.achievementId || "")],
+      hasMap: Boolean(newGuide.maps && newGuide.maps.length > 0 && newGuide.maps[0]?.imageUrl),
+      updatedAt: Date.now(),
+    };
+    setGuides((prev) => {
+      if (prev.some((g) => g.guideSlug === meta.guideSlug)) return prev;
+      return [...prev, meta];
+    });
+  }, [gameId]);
+
+  const handleChecklistProgressChange = useCallback((achId: number, completedCount: number, totalCount: number) => {
+    setChecklistProgress((prev) => {
+      const existing = prev[achId];
+      if (existing && existing.completed === completedCount && existing.total === totalCount) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [achId]: { completed: completedCount, total: totalCount },
+      };
+    });
+  }, []);
+
   // Open Drawer to view checklist
   const handleOpenDrawer = (ach: Achievement) => {
-    const guideMeta = achievementGuideMap.get(ach.id) || getAttachedGuide(ach) || null;
+    const guideMeta =
+      achievementGuideMap.get(ach.id) ||
+      getAttachedGuide(ach) ||
+      matchGuideForAchievement(ach, guides) ||
+      null;
     setSelectedAchievementForDrawer(ach);
     setSelectedGuideForDrawer(guideMeta);
     setIsDrawerOpen(true);
@@ -1399,19 +1447,8 @@ export default function AchievementsList({
           fetchGuides();
           refreshChecklistProgress();
         }}
-        onGuideCreated={() => {
-          fetchGuides();
-          refreshChecklistProgress();
-        }}
-        onChecklistProgressChange={(achId, completedCount, totalCount) => {
-          setChecklistProgress((prev) => ({
-            ...prev,
-            [achId]: { completed: completedCount, total: totalCount },
-            ...(selectedGuideForDrawer?.guideSlug
-              ? { [selectedGuideForDrawer.guideSlug]: { completed: completedCount, total: totalCount } }
-              : {}),
-          }));
-        }}
+        onGuideCreated={handleDrawerGuideCreated}
+        onChecklistProgressChange={handleChecklistProgressChange}
       />
 
       {/* Guide Creator Modal */}

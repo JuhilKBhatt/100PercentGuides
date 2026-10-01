@@ -35,9 +35,14 @@ public class DynamoDbConfig {
 
     @Bean
     public DynamoDbClient dynamoDbClient() {
+        boolean hasCustomEndpoint = endpoint != null
+                && !endpoint.isBlank()
+                && !endpoint.equalsIgnoreCase("none")
+                && !endpoint.equalsIgnoreCase("false");
+
         String effectiveKey = accessKeyId;
         String effectiveSecret = secretAccessKey;
-        if (endpoint != null && !endpoint.isBlank()) {
+        if (hasCustomEndpoint) {
             if (effectiveKey == null || effectiveKey.contains("_") || effectiveKey.isBlank() || effectiveKey.startsWith("your_")) {
                 effectiveKey = "DUMMYKEYEXAMPLE12345";
                 effectiveSecret = "DUMMYSECRETKEYEXAMPLE123456789012345";
@@ -49,8 +54,11 @@ public class DynamoDbConfig {
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(effectiveKey, effectiveSecret)));
 
-        if (endpoint != null && !endpoint.isBlank()) {
+        if (hasCustomEndpoint) {
+            log.info("Configuring DynamoDB with custom endpoint override: {}", endpoint);
             builder.endpointOverride(URI.create(endpoint));
+        } else {
+            log.info("Configuring DynamoDB with AWS Cloud endpoint for region: {}", region);
         }
 
         DynamoDbClient client = builder.build();

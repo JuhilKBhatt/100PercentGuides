@@ -275,9 +275,9 @@ public class GuideService {
     }
     private String extractAchievementId(String json) {
         if (json == null) return null;
-        Matcher m = Pattern.compile("\"achievementId\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);
+        Matcher m = Pattern.compile("\"achievementId\"\\s*:\\s*\"?([^\"\\s,}\\]]+)\"?").matcher(json);
         if (m.find()) return m.group(1);
-        Matcher m2 = Pattern.compile("\"relatedAchievements\"\\s*:\\s*\\[[^\\]]*\"id\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);
+        Matcher m2 = Pattern.compile("\"relatedAchievements\"\\s*:\\s*\\[[^\\]]*\"id\"\\s*:\\s*\"?([^\"\\s,}\\]]+)\"?").matcher(json);
         if (m2.find()) return m2.group(1);
         return null;
     }
@@ -285,14 +285,14 @@ public class GuideService {
     private List<String> extractAllAchievementIds(String json) {
         List<String> ids = new ArrayList<>();
         if (json == null) return ids;
-        Matcher m1 = Pattern.compile("\"achievementId\"\\s*:\\s*\"?(\\d+)\"?").matcher(json);
+        Matcher m1 = Pattern.compile("\"achievementId\"\\s*:\\s*\"?([^\"\\s,}\\]]+)\"?").matcher(json);
         while (m1.find()) {
             String id = m1.group(1);
             if (!ids.contains(id)) ids.add(id);
         }
         Matcher relSection = Pattern.compile("\"relatedAchievements\"\\s*:\\s*\\[([^\\]]*)\\]").matcher(json);
         if (relSection.find()) {
-            Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"?(\\d+)\"?").matcher(relSection.group(1));
+            Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"?([^\"\\s,}\\]]+)\"?").matcher(relSection.group(1));
             while (m2.find()) {
                 String id = m2.group(1);
                 if (!ids.contains(id)) ids.add(id);

@@ -29,6 +29,7 @@ export interface Game {
 
 export interface GameDetails extends Game {
   description: string;
+  description_raw?: string;
   playtime: number;
   developers?: Developer[];
   publishers?: Publisher[];

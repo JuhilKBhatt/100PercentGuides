@@ -17,14 +17,50 @@ import urllib.error
 import ssl
 from pathlib import Path
 
-MODEL_POOL = [
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-lite-latest",
-    "gemini-3-flash-preview",
-    "gemini-3.5-flash",
-    "gemini-3.6-flash"
-]
+def load_model_pool():
+    val = os.environ.get("MODEL_POOL") or os.environ.get("GEMINI_MODEL_POOL")
+    if not val:
+        search_paths = [
+            Path("secrets/.env.dev"),
+            Path("../secrets/.env.dev"),
+            Path("secrets/.env.prod"),
+            Path("../secrets/.env.prod"),
+        ]
+        for p in search_paths:
+            if p.exists():
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("MODEL_POOL=") or line.startswith("GEMINI_MODEL_POOL="):
+                            val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            break
+            if val:
+                break
+
+    if val:
+        val = val.strip()
+        if val.startswith("[") and val.endswith("]"):
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    return [str(m).strip() for m in parsed if str(m).strip()]
+            except Exception:
+                pass
+        models = [m.strip().strip('"').strip("'") for m in val.split(",") if m.strip()]
+        if models:
+            return models
+
+    return [
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash",
+        "gemini-3.6-flash",
+        "gemma-4-31b-it"
+    ]
+
+MODEL_POOL = load_model_pool()
 
 CHECKPOINT_FILE = Path("scripts/top_100_progress.json")
 STOP_REQUESTED = False
@@ -41,6 +77,7 @@ signal.signal(signal.SIGTERM, handle_shutdown)
 def load_keys():
     gemini_key = os.environ.get("GEMINI_API_KEY")
     rawg_key = os.environ.get("RAWG_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
     
     search_paths = [
         Path("secrets/.env.dev"),
@@ -56,7 +93,9 @@ def load_keys():
                         gemini_key = line.split("=", 1)[1].strip().strip('"').strip("'")
                     if not rawg_key and line.startswith("RAWG_API_KEY="):
                         rawg_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-    return gemini_key, rawg_key
+                    if not groq_key and line.startswith("GROQ_API_KEY="):
+                        groq_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+    return gemini_key, rawg_key, groq_key
 
 def fetch_json(url, timeout=25):
     ctx = ssl._create_unverified_context()
@@ -191,7 +230,7 @@ def get_top_games(rawg_key, total=500, checkpoint=None, refresh=False):
         save_checkpoint(checkpoint)
     return games
 
-def generate_achievement_guide(api_key, game_name, game_id, achievement, model_idx=0, max_attempts=4):
+def generate_achievement_guide(api_key, game_name, game_id, achievement, model_idx=0, max_attempts=4, groq_key=None):
     ach_id = achievement.get("id")
     ach_name = achievement.get("name", "Unknown Achievement")
     ach_desc = achievement.get("description", "Unlock the achievement")
@@ -265,6 +304,42 @@ Do NOT wrap the response in markdown blocks. Output pure JSON only."""
                         break
             except Exception:
                 continue
+
+        if raw_text:
+            break
+
+        # Groq failover backup: If Google AI models failed this attempt, try Groq
+        if not raw_text and groq_key:
+            groq_models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+            for gm in groq_models:
+                if STOP_REQUESTED:
+                    break
+                try:
+                    groq_payload = {
+                        "model": gm,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.2
+                    }
+                    groq_req = urllib.request.Request(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        data=json.dumps(groq_payload).encode("utf-8"),
+                        headers={
+                            "Authorization": f"Bearer {groq_key}",
+                            "Content-Type": "application/json",
+                            "User-Agent": "100PercentGuides/1.0"
+                        }
+                    )
+                    ctx = ssl._create_unverified_context()
+                    with urllib.request.urlopen(groq_req, context=ctx, timeout=25) as gres:
+                        gdata = json.loads(gres.read().decode("utf-8"))
+                        gtext = gdata.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if gtext and gtext.strip():
+                            raw_text = gtext
+                            used_model = f"groq:{gm}"
+                            break
+                except Exception:
+                    continue
 
         if raw_text:
             break
@@ -356,7 +431,7 @@ def main():
     # 1. Wait for backend service to be alive
     wait_for_backend(args.backend)
 
-    gemini_key, rawg_key = load_keys()
+    gemini_key, rawg_key, groq_key = load_keys()
     if not rawg_key:
         print("ERROR: RAWG_API_KEY not found in environment or secrets/.env.dev / .env.prod")
         sys.exit(1)
@@ -531,7 +606,7 @@ def main():
 
             t_start = time.time()
             try:
-                guide_obj, used_m = generate_achievement_guide(gemini_key, gname, gid, ach, model_idx=(ach_idx - 1))
+                guide_obj, used_m = generate_achievement_guide(gemini_key, gname, gid, ach, model_idx=(ach_idx - 1), groq_key=groq_key)
                 post_url = f"{args.backend}/api/games/{gid}/guides"
                 post_json(post_url, guide_obj)
                 t_spent = time.time() - t_start

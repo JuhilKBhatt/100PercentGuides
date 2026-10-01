@@ -1,14 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Multi-Model Pool (Verified official active models with high throughput)
-const MODEL_POOL = [
+// Fallback Multi-Model Pool (Verified official active models with high throughput)
+const DEFAULT_MODEL_POOL = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
   "gemini-flash-lite-latest",
   "gemini-3-flash-preview",
   "gemini-3.5-flash",
-  "gemini-3.6-flash"
+  "gemini-3.6-flash",
+  "gemma-4-31b-it",
 ];
+
+function getModelPool(): string[] {
+  const envVal = process.env.MODEL_POOL || process.env.GEMINI_MODEL_POOL;
+  if (!envVal || !envVal.trim()) {
+    return DEFAULT_MODEL_POOL;
+  }
+  const trimmed = envVal.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((m: any) => String(m).trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+  const split = trimmed.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+  return split.length > 0 ? split : DEFAULT_MODEL_POOL;
+}
 
 let roundRobinCounter = 0;
 
@@ -17,6 +36,7 @@ const inFlightRequests = new Map<string, Promise<any>>();
 
 export async function POST(req: NextRequest) {
   try {
+    const MODEL_POOL = getModelPool();
     const body = await req.json();
     const { gameId, gameTitle, achievementId, achievementName, achievementDescription, preferredModel } = body;
 
@@ -71,9 +91,10 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (!apiKey && !groqApiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY is not configured in environment." },
+        { error: "Neither GEMINI_API_KEY nor GROQ_API_KEY is configured in environment." },
         { status: 500 }
       );
     }
@@ -127,43 +148,93 @@ Do NOT wrap the response in markdown blocks. Output pure JSON only.`;
       let usedModel = "";
       let lastError = "";
 
-      for (let i = 0; i < MODEL_POOL.length; i++) {
-        const modelCandidate = MODEL_POOL[(startIndex + i) % MODEL_POOL.length];
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelCandidate}:generateContent?key=${apiKey}`;
+      // Primary: Rotate through Google AI Studio Model Pool
+      if (apiKey) {
+        for (let i = 0; i < MODEL_POOL.length; i++) {
+          const modelCandidate = MODEL_POOL[(startIndex + i) % MODEL_POOL.length];
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelCandidate}:generateContent?key=${apiKey}`;
 
-        try {
-          const geminiRes = await fetch(geminiUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseMimeType: "application/json",
-              },
-            }),
-          });
+          try {
+            const geminiRes = await fetch(geminiUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                },
+              }),
+            });
 
-          if (geminiRes.ok) {
-            const geminiData = await geminiRes.json();
-            const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (rawText && rawText.trim().length > 0) {
-              successfulRawText = rawText;
-              usedModel = modelCandidate;
-              break;
+            if (geminiRes.ok) {
+              const geminiData = await geminiRes.json();
+              const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (rawText && rawText.trim().length > 0) {
+                successfulRawText = rawText;
+                usedModel = modelCandidate;
+                break;
+              }
+            } else {
+              const errText = await geminiRes.text();
+              console.warn(`[Multi-Model Router] Model ${modelCandidate} failed (${geminiRes.status}): ${errText.slice(0, 100)}. Falling back to next candidate...`);
+              lastError = `${modelCandidate} (${geminiRes.status})`;
             }
-          } else {
-            const errText = await geminiRes.text();
-            console.warn(`[Multi-Model Router] Model ${modelCandidate} failed (${geminiRes.status}): ${errText.slice(0, 100)}. Falling back to next model...`);
-            lastError = `${modelCandidate} (${geminiRes.status})`;
+          } catch (err: any) {
+            console.warn(`[Multi-Model Router] Network error with ${modelCandidate}:`, err.message);
+            lastError = err.message;
           }
-        } catch (err: any) {
-          console.warn(`[Multi-Model Router] Network error with ${modelCandidate}:`, err.message);
-          lastError = err.message;
+        }
+      }
+
+      // Secondary / Backup: If Google AI Studio models failed or exhausted, fall back to Groq
+      if (!successfulRawText && groqApiKey) {
+        console.warn("[Multi-Model Router] Google AI Studio models exhausted. Activating Groq failover backup...");
+        const GROQ_BACKUP_MODELS = [
+          "openai/gpt-oss-120b",
+          "openai/gpt-oss-20b",
+          "qwen/qwen3.8-27b",
+        ];
+
+        for (const groqCandidate of GROQ_BACKUP_MODELS) {
+          try {
+            const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${groqApiKey.trim()}`,
+                "Content-Type": "application/json",
+                "User-Agent": "100PercentGuides/1.0",
+              },
+              body: JSON.stringify({
+                model: groqCandidate,
+                messages: [{ role: "user", content: prompt }],
+                response_format: { type: "json_object" },
+                temperature: 0.2,
+              }),
+            });
+
+            if (groqRes.ok) {
+              const groqData = await groqRes.json();
+              const groqText = groqData.choices?.[0]?.message?.content;
+              if (groqText && groqText.trim().length > 0) {
+                successfulRawText = groqText;
+                usedModel = `groq:${groqCandidate}`;
+                console.info(`[Multi-Model Router] Successfully generated guide using Groq backup model: ${groqCandidate}`);
+                break;
+              }
+            } else {
+              const errText = await groqRes.text();
+              console.warn(`[Multi-Model Router] Groq backup model ${groqCandidate} failed (${groqRes.status}): ${errText.slice(0, 100)}`);
+              lastError = `Groq:${groqCandidate} (${groqRes.status})`;
+            }
+          } catch (err: any) {
+            console.warn(`[Multi-Model Router] Network error with Groq model ${groqCandidate}:`, err.message);
+            lastError = `Groq:${groqCandidate} (${err.message})`;
+          }
         }
       }
 
       if (!successfulRawText) {
-        throw new Error(`All models in the pool were exhausted or rate-limited. Last error: ${lastError}`);
+        throw new Error(`All Google AI Studio models and Groq backup models were exhausted or rate-limited. Last error: ${lastError}`);
       }
 
       let parsedGuide: any;

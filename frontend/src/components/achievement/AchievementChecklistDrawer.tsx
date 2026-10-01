@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Achievement, CollectibleGuide, CollectibleStepItem, GuideMeta } from "@/types";
-import { getCollectibleGuide, deleteCollectibleGuide } from "@/lib/api";
+import { getCollectibleGuide, deleteCollectibleGuide, listGameGuides } from "@/lib/api";
 import { getAchievementTierInfo } from "@/utils/achievement";
 import VectorGameMap from "@/components/map/VectorGameMap";
 import {
@@ -38,6 +38,62 @@ interface AchievementChecklistDrawerProps {
   onGuideCreated?: (newGuide: CollectibleGuide) => void;
 }
 
+const toCanonical = (str: string = "") =>
+  str.toLowerCase().replace(/checklist$/i, "").replace(/[^a-z0-9]/g, "");
+
+function matchGuideForAchievement(ach: Achievement, guideList: GuideMeta[]): GuideMeta | undefined {
+  if (!ach || !guideList || guideList.length === 0) return undefined;
+
+  const achIdNum = Number(ach.id);
+  const achIdStr = String(ach.id).trim();
+  const achApi = ach.steamApiName?.trim().toLowerCase();
+  const achCanon = toCanonical(ach.name);
+
+  for (const guide of guideList) {
+    if (!guide) continue;
+
+    if (guide.achievementId !== undefined && guide.achievementId !== null) {
+      const gAchIdStr = String(guide.achievementId).trim();
+      if (gAchIdStr === achIdStr || (!isNaN(achIdNum) && Number(guide.achievementId) === achIdNum)) {
+        return guide;
+      }
+    }
+
+    if (guide.achievementIds && Array.isArray(guide.achievementIds)) {
+      for (const rawId of guide.achievementIds) {
+        const rawStr = String(rawId).trim();
+        if (rawStr === achIdStr || (!isNaN(achIdNum) && Number(rawId) === achIdNum)) {
+          return guide;
+        }
+      }
+    }
+
+    if (guide.guideSlug) {
+      const slugPrefixRemoved = guide.guideSlug.replace(/^ach-/, "").trim().toLowerCase();
+      if (
+        slugPrefixRemoved === achIdStr.toLowerCase() ||
+        (!isNaN(achIdNum) && Number(slugPrefixRemoved) === achIdNum) ||
+        (achApi && slugPrefixRemoved === achApi)
+      ) {
+        return guide;
+      }
+    }
+
+    const guideCanon = toCanonical(guide.title);
+    if (
+      achCanon &&
+      guideCanon &&
+      (guideCanon === achCanon ||
+        guideCanon.includes(achCanon) ||
+        achCanon.includes(guideCanon))
+    ) {
+      return guide;
+    }
+  }
+
+  return undefined;
+}
+
 export default function AchievementChecklistDrawer({
   isOpen,
   onClose,
@@ -60,6 +116,27 @@ export default function AchievementChecklistDrawer({
   const [showMap, setShowMap] = useState(true);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  const activePollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const loadedTargetKeyRef = useRef<string | null>(null);
+  const notifiedGuideSlugsRef = useRef<Set<string>>(new Set());
+
+  const onGuideCreatedRef = useRef(onGuideCreated);
+  useEffect(() => {
+    onGuideCreatedRef.current = onGuideCreated;
+  }, [onGuideCreated]);
+
+  const onChecklistProgressChangeRef = useRef(onChecklistProgressChange);
+  useEffect(() => {
+    onChecklistProgressChangeRef.current = onChecklistProgressChange;
+  }, [onChecklistProgressChange]);
+
+  const stopPolling = useCallback(() => {
+    if (activePollIntervalRef.current) {
+      clearInterval(activePollIntervalRef.current);
+      activePollIntervalRef.current = null;
+    }
+  }, []);
 
   // Close on Escape key
   useEffect(() => {
@@ -84,46 +161,153 @@ export default function AchievementChecklistDrawer({
     percent: "100.0",
   };
 
+  const currentTargetKey = achievement
+    ? `ach-${achievement.id}`
+    : guideMeta?.guideSlug
+    ? `slug-${guideMeta.guideSlug}`
+    : null;
+
+  const loadSavedProgress = useCallback(
+    (g: CollectibleGuide) => {
+      const storageKey = `100pg_guide_${gameId}_${g.guideSlug}`;
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setCheckedItems(parsed);
+          const foundCount = Object.values(parsed).filter(Boolean).length;
+          onChecklistProgressChangeRef.current?.(effectiveAchievement.id, foundCount, g.totalCount);
+        } else {
+          setCheckedItems({});
+        }
+      } catch (e) {
+        setCheckedItems({});
+      }
+    },
+    [gameId, effectiveAchievement.id]
+  );
+
+  // Parallel Database / Cache Lookup Helper
+  const fetchGuideFromDbOrCache = useCallback(
+    async (targetAch: Achievement, explicitMeta?: GuideMeta | null): Promise<CollectibleGuide | null> => {
+      // 1. Direct explicit meta lookup
+      if (explicitMeta?.guideSlug) {
+        try {
+          const direct = await getCollectibleGuide(gameId, explicitMeta.guideSlug);
+          if (direct && (direct.regions?.length > 0 || direct.title)) {
+            return direct;
+          }
+        } catch (e) {}
+      }
+
+      // 2. Candidate slug checks (ach-ID, ach-STEAM_API_NAME)
+      const candidateSlugs: string[] = [];
+      if (targetAch.id !== undefined && targetAch.id !== null) {
+        const sId = String(targetAch.id).trim();
+        if (sId) candidateSlugs.push(`ach-${sId}`);
+      }
+      if (targetAch.steamApiName) {
+        const apiSlug = `ach-${targetAch.steamApiName.trim().toLowerCase()}`;
+        if (!candidateSlugs.includes(apiSlug)) candidateSlugs.push(apiSlug);
+        const apiSlugRaw = `ach-${targetAch.steamApiName.trim()}`;
+        if (!candidateSlugs.includes(apiSlugRaw)) candidateSlugs.push(apiSlugRaw);
+      }
+
+      for (const slug of candidateSlugs) {
+        try {
+          const direct = await getCollectibleGuide(gameId, slug);
+          if (direct && (direct.regions?.length > 0 || direct.title)) {
+            return direct;
+          }
+        } catch (e) {}
+      }
+
+      // 3. Fallback: Query all published guides for this game from DynamoDB/Redis
+      try {
+        const allGuides = await listGameGuides(gameId);
+        if (allGuides && allGuides.length > 0) {
+          const matched = matchGuideForAchievement(targetAch, allGuides);
+          if (matched && matched.guideSlug) {
+            const matchedGuide = await getCollectibleGuide(gameId, matched.guideSlug);
+            if (matchedGuide && (matchedGuide.regions?.length > 0 || matchedGuide.title)) {
+              return matchedGuide;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[AchievementChecklistDrawer] Database/cache guide list lookup:", e);
+      }
+
+      return null;
+    },
+    [gameId]
+  );
+
+  // Reset drawer state when closed
+  useEffect(() => {
+    if (!isOpen) {
+      stopPolling();
+      setIsGeneratingAi(false);
+      setLoading(false);
+      setGuide(null);
+      loadedTargetKeyRef.current = null;
+    }
+  }, [isOpen, stopPolling]);
+
   // Load guide when drawer opens with a guideMeta or achievement
   useEffect(() => {
-    if (!isOpen || (!achievement && !guideMeta?.guideSlug)) {
-      setGuide(null);
+    if (!isOpen || !currentTargetKey) {
       return;
     }
 
-    if (guideMeta?.guideSlug) {
-      setLoading(true);
-      setAiError(null);
-      getCollectibleGuide(gameId, guideMeta.guideSlug)
-        .then((data) => {
-          setGuide(data);
-          if (data) {
-            const storageKey = `100pg_guide_${gameId}_${data.guideSlug}`;
-            try {
-              const saved = localStorage.getItem(storageKey);
-              if (saved) {
-                const parsed = JSON.parse(saved);
-                setCheckedItems(parsed);
-                const foundCount = Object.values(parsed).filter(Boolean).length;
-                if (onChecklistProgressChange) {
-                  onChecklistProgressChange(effectiveAchievement.id, foundCount, data.totalCount);
-                }
-              } else {
-                setCheckedItems({});
-              }
-            } catch (e) {
-              setCheckedItems({});
-            }
-          }
-        })
-        .finally(() => setLoading(false));
-    } else {
-      // Auto-trigger AI generation with Gemini 3.5 Flash Lite if no checklist exists yet
-      setGuide(null);
-      setCheckedItems({});
-      setAiError(null);
+    // Guard: Prevent repetitive re-fetching when the drawer already has the target guide
+    if (loadedTargetKeyRef.current === currentTargetKey && guide !== null) {
+      return;
+    }
+
+    let isCancelled = false;
+    loadedTargetKeyRef.current = currentTargetKey;
+    setLoading(true);
+    setAiError(null);
+
+    // Step 1: Immediate fetch from Database or Redis Cache
+    fetchGuideFromDbOrCache(effectiveAchievement, guideMeta).then((cachedGuide: CollectibleGuide | null) => {
+      if (isCancelled) return;
+
+      if (cachedGuide) {
+        // Guide found in DB or Cache! Immediately display without firing creation events
+        setGuide(cachedGuide);
+        loadSavedProgress(cachedGuide);
+        setLoading(false);
+        setIsGeneratingAi(false);
+        stopPolling();
+        return;
+      }
+
+      // Step 2: Not in DB/Cache yet. Kick off parallel AI generation AND parallel DB polling
+      setLoading(false);
       setIsGeneratingAi(true);
 
+      // Start Parallel Polling every 2.5s to catch writes from background seeder or worker
+      stopPolling();
+      activePollIntervalRef.current = setInterval(async () => {
+        if (isCancelled) return;
+        try {
+          const polled = await fetchGuideFromDbOrCache(effectiveAchievement, guideMeta);
+          if (polled && !isCancelled) {
+            stopPolling();
+            setGuide(polled);
+            loadSavedProgress(polled);
+            setIsGeneratingAi(false);
+            if (polled.guideSlug && !notifiedGuideSlugsRef.current.has(polled.guideSlug)) {
+              notifiedGuideSlugsRef.current.add(polled.guideSlug);
+              onGuideCreatedRef.current?.(polled);
+            }
+          }
+        } catch (e) {}
+      }, 2500);
+
+      // In Parallel: Request generation
       fetch("/api/ai/generate-guide", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,27 +319,156 @@ export default function AchievementChecklistDrawer({
           achievementDescription: effectiveAchievement.description,
         }),
       })
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
-        .then((data) => {
+        .then(async (res) => {
+          if (isCancelled) return;
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const data = await res.json();
           if (data && !data.error) {
+            stopPolling();
             setGuide(data);
-            if (onGuideCreated) {
-              onGuideCreated(data);
+            loadSavedProgress(data);
+            setIsGeneratingAi(false);
+            if (data.guideSlug && !notifiedGuideSlugsRef.current.has(data.guideSlug)) {
+              notifiedGuideSlugsRef.current.add(data.guideSlug);
+              onGuideCreatedRef.current?.(data);
             }
           } else {
-            setAiError(data?.error || "Failed to generate AI checklist.");
+            // Check if DB/cache caught it in the meantime before declaring error
+            const finalCheck = await fetchGuideFromDbOrCache(effectiveAchievement, guideMeta);
+            if (finalCheck && !isCancelled) {
+              stopPolling();
+              setGuide(finalCheck);
+              loadSavedProgress(finalCheck);
+              setIsGeneratingAi(false);
+              if (finalCheck.guideSlug && !notifiedGuideSlugsRef.current.has(finalCheck.guideSlug)) {
+                notifiedGuideSlugsRef.current.add(finalCheck.guideSlug);
+                onGuideCreatedRef.current?.(finalCheck);
+              }
+            } else if (!isCancelled) {
+              stopPolling();
+              setIsGeneratingAi(false);
+              setAiError(data?.error || "Failed to generate AI checklist.");
+            }
           }
         })
-        .catch((err) => {
+        .catch(async (err) => {
+          if (isCancelled) return;
           console.warn("[AI Guide Auto-Generate Notice]", err);
-          setAiError("Could not automatically generate checklist. You can create one manually.");
-        })
-        .finally(() => setIsGeneratingAi(false));
+          // Check DB one more time in case seeder wrote it right as generation failed/timed out
+          const finalCheck = await fetchGuideFromDbOrCache(effectiveAchievement, guideMeta);
+          if (finalCheck && !isCancelled) {
+            stopPolling();
+            setGuide(finalCheck);
+            loadSavedProgress(finalCheck);
+            setIsGeneratingAi(false);
+            if (finalCheck.guideSlug && !notifiedGuideSlugsRef.current.has(finalCheck.guideSlug)) {
+              notifiedGuideSlugsRef.current.add(finalCheck.guideSlug);
+              onGuideCreatedRef.current?.(finalCheck);
+            }
+          } else if (!isCancelled) {
+            stopPolling();
+            setIsGeneratingAi(false);
+            setAiError("Could not automatically generate checklist. You can create one manually or retry.");
+          }
+        });
+    });
+
+    return () => {
+      isCancelled = true;
+      stopPolling();
+    };
+  }, [
+    isOpen,
+    currentTargetKey,
+    gameId,
+    gameName,
+    fetchGuideFromDbOrCache,
+    loadSavedProgress,
+    stopPolling,
+  ]);
+
+  // Retry generation action
+  const handleRetryAiGeneration = async () => {
+    setAiError(null);
+    setIsGeneratingAi(true);
+
+    stopPolling();
+    activePollIntervalRef.current = setInterval(async () => {
+      try {
+        const polled = await fetchGuideFromDbOrCache(effectiveAchievement, guideMeta);
+        if (polled) {
+          stopPolling();
+          setGuide(polled);
+          loadSavedProgress(polled);
+          setIsGeneratingAi(false);
+          if (polled.guideSlug && !notifiedGuideSlugsRef.current.has(polled.guideSlug)) {
+            notifiedGuideSlugsRef.current.add(polled.guideSlug);
+            onGuideCreatedRef.current?.(polled);
+          }
+        }
+      } catch (e) {}
+    }, 2500);
+
+    try {
+      const res = await fetch("/api/ai/generate-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          gameTitle: gameName,
+          achievementId: achievement ? achievement.id : (guideMeta?.achievementId || "100-percent-roadmap"),
+          achievementName: effectiveAchievement.name,
+          achievementDescription: effectiveAchievement.description,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data && !data.error) {
+        stopPolling();
+        setGuide(data);
+        loadSavedProgress(data);
+        setIsGeneratingAi(false);
+        if (data.guideSlug && !notifiedGuideSlugsRef.current.has(data.guideSlug)) {
+          notifiedGuideSlugsRef.current.add(data.guideSlug);
+          onGuideCreatedRef.current?.(data);
+        }
+      } else {
+        const finalCheck = await fetchGuideFromDbOrCache(effectiveAchievement, guideMeta);
+        if (finalCheck) {
+          stopPolling();
+          setGuide(finalCheck);
+          loadSavedProgress(finalCheck);
+          setIsGeneratingAi(false);
+          if (finalCheck.guideSlug && !notifiedGuideSlugsRef.current.has(finalCheck.guideSlug)) {
+            notifiedGuideSlugsRef.current.add(finalCheck.guideSlug);
+            onGuideCreatedRef.current?.(finalCheck);
+          }
+        } else {
+          stopPolling();
+          setIsGeneratingAi(false);
+          setAiError(data?.error || "Failed to generate AI checklist.");
+        }
+      }
+    } catch (err: any) {
+      const finalCheck = await fetchGuideFromDbOrCache(effectiveAchievement, guideMeta);
+      if (finalCheck) {
+        stopPolling();
+        setGuide(finalCheck);
+        loadSavedProgress(finalCheck);
+        setIsGeneratingAi(false);
+        if (finalCheck.guideSlug && !notifiedGuideSlugsRef.current.has(finalCheck.guideSlug)) {
+          notifiedGuideSlugsRef.current.add(finalCheck.guideSlug);
+          onGuideCreatedRef.current?.(finalCheck);
+        }
+      } else {
+        stopPolling();
+        setIsGeneratingAi(false);
+        setAiError("Could not automatically generate checklist. You can create one manually or retry.");
+      }
     }
-  }, [isOpen, achievement, guideMeta?.guideSlug, gameId, gameName]);
+  };
 
   // Save progress helper
   const updateCheckedItem = (itemId: number, isChecked: boolean) => {

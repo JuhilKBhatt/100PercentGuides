@@ -87,7 +87,7 @@ export default async function GamePage({ params }: Props) {
   const genreNames = game.genres?.map((g) => g.name).filter(Boolean).join(", ") || "";
   const completionTime = game.playtime && game.playtime > 0 ? `~${game.playtime} hours` : "Story & Side Quests";
   
-  const rawDesc = cleanGameDescription(game.description);
+  const rawDesc = cleanGameDescription(game.description_raw || game.description);
   const sanitizedDescription = rawDesc && rawDesc.trim().length > 20
     ? rawDesc
     : `${game.name} is an acclaimed title featuring rich storyline milestones, exploration, and collectibles. Use our verified 100% completion roadmap and interactive checklists to complete every milestone.`;
@@ -302,9 +302,9 @@ export default async function GamePage({ params }: Props) {
               <BookOpen size={16} />
               About {game.name}
             </h3>
-            <p className="text-sm text-zinc-300 leading-relaxed font-light">
+            <div className="text-sm text-zinc-300 leading-relaxed font-light whitespace-pre-line space-y-2">
               {sanitizedDescription}
-            </p>
+            </div>
           </div>
         )}
         
