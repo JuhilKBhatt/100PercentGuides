@@ -48,6 +48,8 @@ interface SteamPlayerAchievementData {
   unlockTime: number;
 }
 
+const isDev = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_EDIT === "true";
+
 export default function AchievementsList({
   achievements: rawAchievements,
   steamAppId,
@@ -585,24 +587,64 @@ export default function AchievementsList({
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  // Local manual overrides (allows ticking achievements even without Steam or testing)
-  const [localCompletedIds, setLocalCompletedIds] = useState<Set<number>>(new Set());
+  // Local manual overrides (allows ticking achievements both in guest mode and with Steam profile)
+  const [localCompletedIds, setLocalCompletedIds] = useState<Set<string>>(new Set());
+  const [localUncompletedIds, setLocalUncompletedIds] = useState<Set<string>>(new Set());
+
+  // Storage keys based on gameId, falling back to steamAppId
+  const primaryStorageKey = gameId || steamAppId || (achievements[0]?.id ? String(achievements[0].id) : "default");
+  const completedStorageKey = `100pg_local_achievements_${primaryStorageKey}`;
+  const uncompletedStorageKey = `100pg_local_uncompleted_${primaryStorageKey}`;
 
   // Load local completion storage
   useEffect(() => {
-    if (typeof window !== "undefined" && (steamAppId || achievements[0]?.id)) {
-      const storageKey = `100pg_local_achievements_${steamAppId || achievements[0]?.id}`;
-      try {
-        const saved = localStorage.getItem(storageKey);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            setLocalCompletedIds(new Set(parsed));
-          }
+    if (typeof window === "undefined") return;
+
+    try {
+      // 1. Load completed IDs (checking primaryStorageKey, plus older legacy keys for backward compatibility)
+      let savedCompleted = localStorage.getItem(completedStorageKey);
+      if (!savedCompleted && steamAppId) {
+        savedCompleted = localStorage.getItem(`100pg_local_achievements_${steamAppId}`);
+      }
+      if (!savedCompleted && achievements[0]?.id) {
+        savedCompleted = localStorage.getItem(`100pg_local_achievements_${achievements[0].id}`);
+      }
+
+      if (savedCompleted) {
+        const parsed = JSON.parse(savedCompleted);
+        if (Array.isArray(parsed)) {
+          setLocalCompletedIds(new Set(parsed.map((item) => String(item).toLowerCase())));
         }
+      }
+
+      // 2. Load uncompleted override IDs
+      const savedUncompleted = localStorage.getItem(uncompletedStorageKey);
+      if (savedUncompleted) {
+        const parsed = JSON.parse(savedUncompleted);
+        if (Array.isArray(parsed)) {
+          setLocalUncompletedIds(new Set(parsed.map((item) => String(item).toLowerCase())));
+        }
+      }
+    } catch (e) {
+      console.warn("Could not parse local achievement storage:", e);
+    }
+  }, [completedStorageKey, uncompletedStorageKey, steamAppId, achievements]);
+
+  const saveLocalCompleted = (set: Set<string>) => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(completedStorageKey, JSON.stringify(Array.from(set)));
       } catch (e) {}
     }
-  }, [steamAppId, achievements]);
+  };
+
+  const saveLocalUncompleted = (set: Set<string>) => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(uncompletedStorageKey, JSON.stringify(Array.from(set)));
+      } catch (e) {}
+    }
+  };
 
   // Sync with Steam
   const fetchSteamAchievements = useCallback(async () => {
@@ -619,7 +661,7 @@ export default function AchievementsList({
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         if (res.status === 403 || errData.error?.includes("Profile is not public") || errData.playerstats?.error?.includes("Profile is not public")) {
-          setSyncError("Your Steam profile game details are set to Private. Change 'Game details' to Public in Steam Privacy Settings to sync achievements.");
+          setSyncError("Your Steam profile game details are set to Private. Change \x27Game details\x27 to Public in Steam Privacy Settings to sync achievements.");
         } else {
           setSyncError(errData.error || "Could not retrieve Steam achievements.");
         }
@@ -636,7 +678,7 @@ export default function AchievementsList({
 
       if (stats.success === false) {
         if (stats.error && stats.error.includes("Profile is not public")) {
-          setSyncError("Your Steam profile is set to Private. Change 'Game details' to Public in Steam Privacy Settings to allow auto-checking.");
+          setSyncError("Your Steam profile is set to Private. Change \x27Game details\x27 to Public in Steam Privacy Settings to allow auto-checking.");
         } else {
           setSyncError(stats.error || "Steam player data unavailable.");
         }
@@ -679,53 +721,90 @@ export default function AchievementsList({
   // Check achievement status
   const getAchievementStatus = useCallback(
     (ach: Achievement): { isCompleted: boolean; unlockTime: number; fromSteam: boolean } => {
-      // 1. Check Steam sync
+      const idKey = String(ach.id).toLowerCase();
+      const apiNameKey = ach.steamApiName ? ach.steamApiName.toLowerCase() : null;
+      const nameKey = ach.name.trim().toLowerCase();
+
+      // 1. Explicit local uncomplete override (takes top priority if user clicked to uncheck)
+      if (localUncompletedIds.has(idKey) || (apiNameKey && localUncompletedIds.has(apiNameKey)) || localUncompletedIds.has(nameKey)) {
+        return { isCompleted: false, unlockTime: 0, fromSteam: false };
+      }
+
+      // 2. Explicit local completed override (takes priority for user manual ticks)
+      if (localCompletedIds.has(idKey) || (apiNameKey && localCompletedIds.has(apiNameKey)) || localCompletedIds.has(nameKey)) {
+        return { isCompleted: true, unlockTime: 0, fromSteam: false };
+      }
+
+      // 3. Official Steam sync (when logged in with Steam)
       if (user?.steamId && steamUnlockedMap.size > 0) {
-        if (ach.steamApiName) {
-          const steamStatus = steamUnlockedMap.get(ach.steamApiName.toLowerCase());
+        if (apiNameKey) {
+          const steamStatus = steamUnlockedMap.get(apiNameKey);
           if (steamStatus?.achieved) {
             return { isCompleted: true, unlockTime: steamStatus.unlockTime, fromSteam: true };
           }
         }
 
-        const nameKey = ach.name.trim().toLowerCase();
         const steamNameStatus = steamUnlockedMap.get(nameKey);
         if (steamNameStatus?.achieved) {
           return { isCompleted: true, unlockTime: steamNameStatus.unlockTime, fromSteam: true };
         }
       }
 
-      // When logged in with Steam, Steam is the EXCLUSIVE source of truth (do not allow local checks to alter Steam stats)
-      if (user?.steamId) {
-        return { isCompleted: false, unlockTime: 0, fromSteam: false };
-      }
-
-      // 2. Offline / Guest manual toggle fallback (only for non-logged-in users)
-      if (localCompletedIds.has(ach.id)) {
-        return { isCompleted: true, unlockTime: 0, fromSteam: false };
-      }
-
       return { isCompleted: false, unlockTime: 0, fromSteam: false };
     },
-    [user?.steamId, steamUnlockedMap, localCompletedIds]
+    [user?.steamId, steamUnlockedMap, localCompletedIds, localUncompletedIds]
   );
 
   // Toggle local completion
-  const toggleLocalCompletion = (achId: number) => {
-    setLocalCompletedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(achId)) {
-        next.delete(achId);
-      } else {
-        next.add(achId);
-      }
+  const toggleLocalCompletion = (ach: Achievement) => {
+    const currentStatus = getAchievementStatus(ach);
+    const idKey = String(ach.id).toLowerCase();
+    const apiNameKey = ach.steamApiName ? ach.steamApiName.toLowerCase() : null;
+    const nameKey = ach.name.trim().toLowerCase();
 
-      if (typeof window !== "undefined" && (steamAppId || achievements[0]?.id)) {
-        const storageKey = `100pg_local_achievements_${steamAppId || achievements[0]?.id}`;
-        localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
+    if (currentStatus.isCompleted) {
+      // Achievement is currently completed -> Unmark it
+      setLocalCompletedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(idKey);
+        if (apiNameKey) next.delete(apiNameKey);
+        next.delete(nameKey);
+        saveLocalCompleted(next);
+        return next;
+      });
+
+      // If it was originally completed via Steam, add to uncompleted overrides
+      if (currentStatus.fromSteam) {
+        setLocalUncompletedIds((prev) => {
+          const next = new Set(prev);
+          next.add(idKey);
+          if (apiNameKey) next.add(apiNameKey);
+          next.add(nameKey);
+          saveLocalUncompleted(next);
+          return next;
+        });
       }
-      return next;
-    });
+    } else {
+      // Achievement is currently uncompleted -> Mark as completed
+      // If it was in uncompleted overrides, remove it
+      setLocalUncompletedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(idKey);
+        if (apiNameKey) next.delete(apiNameKey);
+        next.delete(nameKey);
+        saveLocalUncompleted(next);
+        return next;
+      });
+
+      // Add to completed
+      setLocalCompletedIds((prev) => {
+        const next = new Set(prev);
+        next.add(idKey);
+        if (apiNameKey) next.add(apiNameKey);
+        saveLocalCompleted(next);
+        return next;
+      });
+    }
   };
 
   // Counts
@@ -1076,13 +1155,15 @@ export default function AchievementsList({
                           <span>{guide.hasMap ? "View Checklist & Map" : "View Checklist"}</span>
                         </button>
 
-                        <button
-                          onClick={() => handleEditGuide(guide)}
-                          className="p-2.5 rounded-xl text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
-                          title="Edit Checklist"
-                        >
-                          <Edit2 size={14} />
-                        </button>
+                        {isDev && (
+                          <button
+                            onClick={() => handleEditGuide(guide)}
+                            className="p-2.5 rounded-xl text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
+                            title="Edit Checklist"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1247,9 +1328,14 @@ export default function AchievementsList({
                     <div className="flex items-center gap-3 shrink-0">
                       {/* Interactive completion toggle */}
                       <button
-                        onClick={() => toggleLocalCompletion(ach.id)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLocalCompletion(ach);
+                        }}
                         className="p-1 rounded-lg text-zinc-500 hover:text-white transition-colors focus:outline-none"
                         title={isCompleted ? "Completed! Click to toggle manual state" : "Click to mark as completed"}
+                        aria-label={isCompleted ? `Mark ${ach.name} as incomplete` : `Mark ${ach.name} as completed`}
                       >
                         {isCompleted ? (
                           <CheckCircle2 className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]" />
@@ -1379,13 +1465,15 @@ export default function AchievementsList({
                         </div>
                       </button>
 
-                      <button
-                        onClick={() => handleEditChecklist(ach, attachedGuide)}
-                        className="p-1.5 rounded-xl text-zinc-500 hover:text-white bg-zinc-950 border border-zinc-900 hover:border-zinc-800 transition-colors"
-                        title="Edit Checklist"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isDev && (
+                        <button
+                          onClick={() => handleEditChecklist(ach, attachedGuide)}
+                          className="p-1.5 rounded-xl text-zinc-500 hover:text-white bg-zinc-950 border border-zinc-900 hover:border-zinc-800 transition-colors"
+                          title="Edit Checklist"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   ) : (
                     /* No Checklist Yet - Automated Generation Loading State (No buttons) */

@@ -38,6 +38,8 @@ interface AchievementChecklistDrawerProps {
   onGuideCreated?: (newGuide: CollectibleGuide) => void;
 }
 
+const isDev = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_EDIT === "true";
+
 const toCanonical = (str: string = "") =>
   str.toLowerCase().replace(/checklist$/i, "").replace(/[^a-z0-9]/g, "");
 
@@ -637,7 +639,7 @@ export default function AchievementChecklistDrawer({
 
           {/* Action buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {guide && (
+            {guide && isDev && (
               <>
                 <button
                   onClick={() => onOpenCreator(effectiveAchievement, guide)}
